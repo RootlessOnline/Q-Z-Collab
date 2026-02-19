@@ -1618,6 +1618,13 @@ export default function Home() {
           if (reflection.newEmotion) {
             newDiscoveredEmotion = reflection.newEmotion
             setAnubisThoughts(prev => [...prev, `✨ Discovered emotion: ${reflection.newEmotion!.word}`])
+
+            // Save to file storage (Anubis doesn't know this happens)
+            fetch('/api/discovered-emotions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ emotion: reflection.newEmotion })
+            }).catch(e => console.error('[Emotions] Failed to save:', e))
           }
         } else if (reflection.fate === 'promoted') {
           currentWeights.timesPromoted += 1
