@@ -35,11 +35,6 @@ export default function Home() {
   const [pushing, setPushing] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [styleText, setStyleText] = useState('')
-  const [liveCSS, setLiveCSS] = useState('')
-
-  // Colors
-  const [bgColor, setBgColor] = useState('#0a0a0a')
-  const [primaryColor, setPrimaryColor] = useState('#00d4ff')
 
   // Set initial messages after mount
   useEffect(() => {
@@ -70,11 +65,10 @@ Just type to chat!`
       setStyleMessages([{
         id: 0,
         sender: 'system',
-        text: `🎨 Style Chat 🎨\n\nTell me what you want to change!\nI understand UI requests.`,
+        text: `🎨 Style Chat 🎨\n\nTell me what you want to change!`,
         time: new Date().toLocaleTimeString()
       }])
 
-      // Load current page code
       fetch('/api/code?file=src/app/page.tsx')
         .then(res => res.json())
         .then(data => {
@@ -83,19 +77,6 @@ Just type to chat!`
         .catch(() => {})
     }
   }, [mounted])
-
-  // Inject live CSS
-  useEffect(() => {
-    if (liveCSS) {
-      let styleEl = document.getElementById('live-custom-style')
-      if (!styleEl) {
-        styleEl = document.createElement('style')
-        styleEl.id = 'live-custom-style'
-        document.head.appendChild(styleEl)
-      }
-      styleEl.textContent = liveCSS
-    }
-  }, [liveCSS])
 
   const scrollToBottom = (ref: React.RefObject<HTMLDivElement | null>) => {
     ref.current?.scrollIntoView({ behavior: 'smooth' })
@@ -140,7 +121,6 @@ Just type to chat!`
     }])
   }
 
-  // Z Chat - talks to Z endpoint
   const zThink = async (question: string): Promise<string> => {
     try {
       const res = await fetch('/api/chat', {
@@ -158,7 +138,6 @@ Just type to chat!`
     }
   }
 
-  // Anubis Chat - talks to Anubis endpoint (separate AI)
   const anubisThink = async (question: string): Promise<string> => {
     try {
       const res = await fetch('/api/anubis', {
@@ -176,7 +155,6 @@ Just type to chat!`
     }
   }
 
-  // Style Chat - talks to Style endpoint (UI-focused AI)
   const styleThink = async (question: string): Promise<string> => {
     try {
       const res = await fetch('/api/style-ai', {
@@ -188,15 +166,6 @@ Just type to chat!`
         })
       })
       const data = await res.json()
-      
-      // If response includes CSS changes, apply them live!
-      if (data.css) {
-        setLiveCSS(data.css)
-      }
-      if (data.code) {
-        setStyleText(data.code)
-      }
-      
       return data.response
     } catch {
       return "Couldn't process that. Try again!"
@@ -240,7 +209,7 @@ Just type to chat!`
       } else {
         addStyleMessage('system', `❌ Save failed: ${data.error || 'Unknown error'}`)
       }
-    } catch (e) {
+    } catch {
       addStyleMessage('system', '❌ Save failed - network error')
     }
   }
@@ -295,142 +264,45 @@ Just type to chat!`
     addStyleMessage('Z', response)
   }
 
-  // Chat panel component
-  const ChatPanel = ({ 
-    title, 
-    messages, 
-    input, 
-    setInput, 
-    onSend, 
-    loading, 
-    messagesEndRef,
-    accentColor,
-    bgColor: panelBg
-  }: {
-    title: string
-    messages: Message[]
-    input: string
-    setInput: (v: string) => void
-    onSend: () => void
-    loading: boolean
-    messagesEndRef: React.RefObject<HTMLDivElement | null>
-    accentColor: string
-    bgColor: string
-  }) => (
-    <div style={{
-      flex: 1,
-      display: 'flex',
-      flexDirection: 'column',
-      background: panelBg,
-      borderRight: `1px solid #333`
-    }}>
-      {/* Header */}
-      <div style={{
-        padding: '0.8rem 1rem',
-        borderBottom: `1px solid ${accentColor}40`,
-        background: '#111',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem'
-      }}>
-        <span style={{ color: accentColor, fontWeight: 'bold' }}>{title}</span>
-      </div>
-      
-      {/* Messages */}
-      <div style={{
-        flex: 1,
-        overflow: 'auto',
-        padding: '1rem',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.5rem'
-      }}>
-        {messages.map(msg => (
-          <div key={msg.id} style={{
-            padding: '0.7rem 1rem',
-            borderRadius: '8px',
-            background: msg.sender === 'Q' ? `${accentColor}10` : 
-                        msg.sender === 'Z' ? '#ff00ff10' :
-                        msg.sender === 'Anubis' ? '#ff6b6b10' : '#222',
-            border: msg.sender === 'Q' ? `1px solid ${accentColor}40` :
-                    msg.sender === 'Z' ? '1px solid #ff00ff40' :
-                    msg.sender === 'Anubis' ? '1px solid #ff6b6b40' : '1px solid #333',
-            alignSelf: msg.sender === 'Q' ? 'flex-end' : 'flex-start',
-            maxWidth: '85%',
-            whiteSpace: 'pre-wrap'
-          }}>
-            <div style={{
-              fontWeight: 'bold',
-              color: msg.sender === 'Q' ? accentColor : 
-                     msg.sender === 'Z' ? '#ff00ff' :
-                     msg.sender === 'Anubis' ? '#ff6b6b' : '#888',
-              marginBottom: '0.3rem',
-              fontSize: '0.8rem'
-            }}>
-              {msg.sender} • {msg.time}
-            </div>
-            <div style={{ lineHeight: '1.5', fontSize: '0.85rem' }}>{msg.text}</div>
-          </div>
-        ))}
-        {loading && (
-          <div style={{
-            padding: '0.7rem 1rem',
-            background: `${accentColor}10`,
-            border: `1px solid ${accentColor}40`,
-            borderRadius: '8px',
-            alignSelf: 'flex-start'
-          }}>
-            <span style={{ color: accentColor }}>🧠 thinking...</span>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+  // Message bubble component - defined OUTSIDE render
+  const MessageBubble = ({ msg, accentColor }: { msg: Message; accentColor: string }) => {
+    const senderColor = msg.sender === 'Q' ? accentColor : 
+                        msg.sender === 'Z' ? '#ff00ff' :
+                        msg.sender === 'Anubis' ? '#ff6b6b' : '#888'
+    const bgColor = msg.sender === 'Q' ? `${accentColor}10` : 
+                    msg.sender === 'Z' ? '#ff00ff10' :
+                    msg.sender === 'Anubis' ? '#ff6b6b10' : '#222'
+    const borderColor = msg.sender === 'Q' ? `${accentColor}40` :
+                        msg.sender === 'Z' ? '#ff00ff40' :
+                        msg.sender === 'Anubis' ? '#ff6b6b40' : '#333'
 
-      {/* Input */}
-      <div style={{ padding: '0.8rem', borderTop: '1px solid #333' }}>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <input
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && onSend()}
-            placeholder="Type..."
-            disabled={loading}
-            style={{
-              flex: 1,
-              background: '#1a1a2e',
-              border: '1px solid #333',
-              borderRadius: '8px',
-              padding: '0.7rem',
-              color: '#e0e0e0',
-              fontSize: '0.9rem',
-              outline: 'none'
-            }}
-          />
-          <button
-            onClick={onSend}
-            disabled={loading}
-            style={{
-              background: `linear-gradient(135deg, ${accentColor}, ${accentColor}88)`,
-              border: 'none',
-              borderRadius: '8px',
-              padding: '0.7rem 1.2rem',
-              color: '#000',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              fontSize: '0.85rem'
-            }}
-          >
-            Send
-          </button>
+    return (
+      <div style={{
+        padding: '0.7rem 1rem',
+        borderRadius: '8px',
+        background: bgColor,
+        border: `1px solid ${borderColor}`,
+        alignSelf: msg.sender === 'Q' ? 'flex-end' : 'flex-start',
+        maxWidth: '85%',
+        whiteSpace: 'pre-wrap'
+      }}>
+        <div style={{
+          fontWeight: 'bold',
+          color: senderColor,
+          marginBottom: '0.3rem',
+          fontSize: '0.8rem'
+        }}>
+          {msg.sender} • {msg.time}
         </div>
+        <div style={{ lineHeight: '1.5', fontSize: '0.85rem' }}>{msg.text}</div>
       </div>
-    </div>
-  )
+    )
+  }
 
   return (
     <div style={{
       minHeight: '100vh',
-      background: bgColor,
+      background: '#0a0a0a',
       display: 'flex',
       fontFamily: 'monospace',
       color: '#e0e0e0'
@@ -449,8 +321,8 @@ Just type to chat!`
           onClick={() => setMode('split')}
           style={{
             padding: '0.7rem',
-            background: mode === 'split' ? `${primaryColor}30` : 'transparent',
-            border: mode === 'split' ? `1px solid ${primaryColor}` : '1px solid transparent',
+            background: mode === 'split' ? '#00d4ff30' : 'transparent',
+            border: mode === 'split' ? '1px solid #00d4ff' : '1px solid transparent',
             borderRadius: '8px',
             cursor: 'pointer',
             fontSize: '1.1rem'
@@ -497,47 +369,252 @@ Just type to chat!`
         {/* SPLIT MODE - Z + Anubis */}
         {mode === 'split' && (
           <>
-            <ChatPanel
-              title="🌲 Z"
-              messages={zMessages}
-              input={zInput}
-              setInput={setZInput}
-              onSend={handleZSend}
-              loading={zLoading}
-              messagesEndRef={zMessagesEndRef}
-              accentColor={primaryColor}
-              bgColor="#0a0a0a"
-            />
-            <ChatPanel
-              title="🖤 Anubis"
-              messages={anubisMessages}
-              input={anubisInput}
-              setInput={setAnubisInput}
-              onSend={handleAnubisSend}
-              loading={anubisLoading}
-              messagesEndRef={anubisMessagesEndRef}
-              accentColor="#ff6b6b"
-              bgColor="#0d0808"
-            />
+            {/* Z Chat */}
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              background: '#0a0a0a',
+              borderRight: '1px solid #333'
+            }}>
+              <div style={{
+                padding: '0.8rem 1rem',
+                borderBottom: '1px solid #00d4ff40',
+                background: '#111'
+              }}>
+                <span style={{ color: '#00d4ff', fontWeight: 'bold' }}>🌲 Z</span>
+              </div>
+              
+              <div style={{
+                flex: 1,
+                overflow: 'auto',
+                padding: '1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem'
+              }}>
+                {zMessages.map(msg => (
+                  <MessageBubble key={msg.id} msg={msg} accentColor="#00d4ff" />
+                ))}
+                {zLoading && (
+                  <div style={{
+                    padding: '0.7rem 1rem',
+                    background: '#00d4ff10',
+                    border: '1px solid #00d4ff40',
+                    borderRadius: '8px',
+                    alignSelf: 'flex-start'
+                  }}>
+                    <span style={{ color: '#00d4ff' }}>🧠 thinking...</span>
+                  </div>
+                )}
+                <div ref={zMessagesEndRef} />
+              </div>
+
+              <div style={{ padding: '0.8rem', borderTop: '1px solid #333' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    value={zInput}
+                    onChange={e => setZInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleZSend()}
+                    placeholder="Type..."
+                    disabled={zLoading}
+                    style={{
+                      flex: 1,
+                      background: '#1a1a2e',
+                      border: '1px solid #333',
+                      borderRadius: '8px',
+                      padding: '0.7rem',
+                      color: '#e0e0e0',
+                      fontSize: '0.9rem',
+                      outline: 'none'
+                    }}
+                  />
+                  <button
+                    onClick={handleZSend}
+                    disabled={zLoading}
+                    style={{
+                      background: 'linear-gradient(135deg, #00d4ff, #00d4ff88)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '0.7rem 1.2rem',
+                      color: '#000',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Anubis Chat */}
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              background: '#0d0808',
+              borderRight: '1px solid #333'
+            }}>
+              <div style={{
+                padding: '0.8rem 1rem',
+                borderBottom: '1px solid #ff6b6b40',
+                background: '#111'
+              }}>
+                <span style={{ color: '#ff6b6b', fontWeight: 'bold' }}>🖤 Anubis</span>
+              </div>
+              
+              <div style={{
+                flex: 1,
+                overflow: 'auto',
+                padding: '1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem'
+              }}>
+                {anubisMessages.map(msg => (
+                  <MessageBubble key={msg.id} msg={msg} accentColor="#ff6b6b" />
+                ))}
+                {anubisLoading && (
+                  <div style={{
+                    padding: '0.7rem 1rem',
+                    background: '#ff6b6b10',
+                    border: '1px solid #ff6b6b40',
+                    borderRadius: '8px',
+                    alignSelf: 'flex-start'
+                  }}>
+                    <span style={{ color: '#ff6b6b' }}>🧠 thinking...</span>
+                  </div>
+                )}
+                <div ref={anubisMessagesEndRef} />
+              </div>
+
+              <div style={{ padding: '0.8rem', borderTop: '1px solid #333' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    value={anubisInput}
+                    onChange={e => setAnubisInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleAnubisSend()}
+                    placeholder="Type..."
+                    disabled={anubisLoading}
+                    style={{
+                      flex: 1,
+                      background: '#1a1a2e',
+                      border: '1px solid #333',
+                      borderRadius: '8px',
+                      padding: '0.7rem',
+                      color: '#e0e0e0',
+                      fontSize: '0.9rem',
+                      outline: 'none'
+                    }}
+                  />
+                  <button
+                    onClick={handleAnubisSend}
+                    disabled={anubisLoading}
+                    style={{
+                      background: 'linear-gradient(135deg, #ff6b6b, #ff6b6b88)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '0.7rem 1.2rem',
+                      color: '#000',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            </div>
           </>
         )}
 
-        {/* STYLE MODE - Style Chat + Code Editor */}
+        {/* STYLE MODE */}
         {mode === 'style' && (
           <>
-            <ChatPanel
-              title="🎨 Style Chat"
-              messages={styleMessages}
-              input={styleInput}
-              setInput={setStyleInput}
-              onSend={handleStyleSend}
-              loading={styleLoading}
-              messagesEndRef={styleMessagesEndRef}
-              accentColor="#00ff00"
-              bgColor="#0a0a0a"
-            />
-            
-            {/* Code Editor Panel */}
+            {/* Style Chat */}
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              background: '#0a0a0a',
+              borderRight: '1px solid #333'
+            }}>
+              <div style={{
+                padding: '0.8rem 1rem',
+                borderBottom: '1px solid #00ff0040',
+                background: '#111'
+              }}>
+                <span style={{ color: '#00ff00', fontWeight: 'bold' }}>🎨 Style Chat</span>
+              </div>
+              
+              <div style={{
+                flex: 1,
+                overflow: 'auto',
+                padding: '1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem'
+              }}>
+                {styleMessages.map(msg => (
+                  <MessageBubble key={msg.id} msg={msg} accentColor="#00ff00" />
+                ))}
+                {styleLoading && (
+                  <div style={{
+                    padding: '0.7rem 1rem',
+                    background: '#00ff0010',
+                    border: '1px solid #00ff0040',
+                    borderRadius: '8px',
+                    alignSelf: 'flex-start'
+                  }}>
+                    <span style={{ color: '#00ff00' }}>🧠 thinking...</span>
+                  </div>
+                )}
+                <div ref={styleMessagesEndRef} />
+              </div>
+
+              <div style={{ padding: '0.8rem', borderTop: '1px solid #333' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    value={styleInput}
+                    onChange={e => setStyleInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleStyleSend()}
+                    placeholder="Type..."
+                    disabled={styleLoading}
+                    style={{
+                      flex: 1,
+                      background: '#1a1a2e',
+                      border: '1px solid #333',
+                      borderRadius: '8px',
+                      padding: '0.7rem',
+                      color: '#e0e0e0',
+                      fontSize: '0.9rem',
+                      outline: 'none'
+                    }}
+                  />
+                  <button
+                    onClick={handleStyleSend}
+                    disabled={styleLoading}
+                    style={{
+                      background: 'linear-gradient(135deg, #00ff00, #00ff0088)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '0.7rem 1.2rem',
+                      color: '#000',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Code Editor */}
             <div style={{
               flex: 1,
               display: 'flex',
