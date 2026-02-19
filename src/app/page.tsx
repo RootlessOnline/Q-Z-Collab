@@ -72,6 +72,8 @@ Type 'theme' to customize colors
   })
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [autoPushEnabled, setAutoPushEnabled] = useState(false)
+  const [pushing, setPushing] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -86,6 +88,7 @@ Type 'theme' to customize colors
     loadFiles('src/app')
     loadTheme()
     loadSyncStatus()
+    loadAutoPushConfig()
   }, [])
 
   const loadFiles = async (dir: string) => {
@@ -158,6 +161,52 @@ Type 'theme' to customize colors
     } catch (e) {
       console.error('Failed to load sync status:', e)
     }
+  }
+
+  const loadAutoPushConfig = async () => {
+    try {
+      const res = await fetch('/api/autopush?action=config')
+      const data = await res.json()
+      setAutoPushEnabled(data.enabled)
+    } catch (e) {
+      console.error('Failed to load auto-push config:', e)
+    }
+  }
+
+  const toggleAutoPush = async () => {
+    try {
+      const res = await fetch('/api/autopush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle-auto-push' })
+      })
+      const data = await res.json()
+      setAutoPushEnabled(data.enabled)
+      addSystemMessage(data.message)
+    } catch (e) {
+      addSystemMessage('Failed to toggle auto-push')
+    }
+  }
+
+  const pushToZ = async () => {
+    setPushing(true)
+    addSystemMessage('📤 Pushing chat to GitHub for Real Z to see...')
+    try {
+      const res = await fetch('/api/autopush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'push-now' })
+      })
+      const data = await res.json()
+      if (data.success) {
+        addSystemMessage(`✅ ${data.message}\n\nReal Z can now see our chat at:\nhttps://github.com/RootlessOnline/Q-Z-Collab/blob/main/LOCAL_Z_CHAT.md`)
+      } else {
+        addSystemMessage(`❌ Push failed: ${data.error}`)
+      }
+    } catch (e) {
+      addSystemMessage('❌ Push failed. Check your connection.')
+    }
+    setPushing(false)
   }
 
   const doSync = async () => {
@@ -368,8 +417,16 @@ Type 'theme' to customize colors
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <button onClick={pushToZ} disabled={pushing}
+              style={{ background: pushing ? '#555' : '#ff00ff20', border: '1px solid #ff00ff', color: '#ff00ff', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: pushing ? 'wait' : 'pointer', fontSize: '0.75rem' }}>
+              {pushing ? '⏳' : '📤'} Push to Z
+            </button>
+            <button onClick={toggleAutoPush}
+              style={{ background: autoPushEnabled ? '#00ff0020' : '#333', border: '1px solid #00ff00', color: '#00ff00', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              {autoPushEnabled ? '🔔 Auto' : '🔕 Auto'}
+            </button>
             <button onClick={doSync} disabled={syncing}
-              style={{ background: syncing ? '#555' : '#00ff0020', border: '1px solid #00ff00', color: '#00ff00', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: syncing ? 'wait' : 'pointer', fontSize: '0.75rem' }}>
+              style={{ background: syncing ? '#555' : '#00d4ff20', border: '1px solid #00d4ff', color: '#00d4ff', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: syncing ? 'wait' : 'pointer', fontSize: '0.75rem' }}>
               {syncing ? '⏳' : '🔄'} Sync
             </button>
             <button onClick={() => { setShowCode(!showCode); setShowTheme(false); setShowSync(false); }}

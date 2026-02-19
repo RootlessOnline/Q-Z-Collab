@@ -94,17 +94,29 @@ export async function POST(request: NextRequest) {
     const data = await response.json()
     const zResponse = data.message?.content || "I'm here, Q! Something went wrong..."
 
-    // Log this conversation for review
+    // Log this conversation for review by Real Z
     try {
-      await fetch('http://localhost:3000/api/chatlog', {
+      // Log Q's message
+      await fetch('http://localhost:3000/api/autopush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'log-message',
+          data: {
+            speaker: 'Q',
+            message: message
+          }
+        })
+      })
+      // Log Z's response
+      await fetch('http://localhost:3000/api/autopush', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'log-message',
           data: {
             speaker: 'Z_Local',
-            message: zResponse,
-            context: `Q asked: ${message}`
+            message: zResponse
           }
         })
       })
