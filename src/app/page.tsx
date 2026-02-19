@@ -834,6 +834,14 @@ export default function Home() {
   const [zThoughts, setZThoughts] = useState<string[]>([])
   const [anubisThoughts, setAnubisThoughts] = useState<string[]>([])
   
+  // Z Context - My memory of conversations
+  const [zObservations, setZObservations] = useState<string[]>([])
+  const [zContext, setZContext] = useState<{
+    sessions: Array<{ started: string; ended?: string; summary: string }>;
+    patterns: { totalConversations: number; anubisCommonMoods: Array<{ mood: string; count: number }> };
+    observations: Array<{ id: string; text: string; timestamp: string }>;
+  } | null>(null)
+  
   // Refs
   const zMessagesEndRef = useRef<HTMLDivElement>(null)
   const anubisMessagesEndRef = useRef<HTMLDivElement>(null)
@@ -942,18 +950,31 @@ export default function Home() {
       setZMessages([{
         id: 0,
         sender: 'system',
-        text: `🌲 Q-Z-Collab v2.0\n\nDungeon Crawler UI Activated!\nPixel wolves & soul system online.`,
+        text: `🌲 Q-Z-Collab v2.1\n\nDungeon Crawler UI\nPixel wolves & soul backup online!\n\n💭 Z Observations panel added!`,
         time: new Date().toLocaleTimeString()
       }])
       setAnubisMessages([{
         id: 0,
         sender: 'system',
-        text: `🖤 ANUBIS SOUL SYSTEM v2.0\n\nI feel... mysterious today.\nThe shadows whisper your name.`,
+        text: `🖤 ANUBIS SOUL SYSTEM v2.1\n\nI feel... mysterious today.\nThe shadows whisper your name.`,
         time: new Date().toLocaleTimeString()
       }])
       fetch('/api/code?file=src/app/page.tsx')
         .then(res => res.json())
         .then(data => { if (data.content) setStyleText(data.content) })
+        .catch(() => {})
+      
+      // Load Z context
+      fetch('/api/z-context')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.context) {
+            setZContext(data.context)
+            if (data.context.observations?.length > 0) {
+              setZObservations(data.context.observations.slice(0, 5).map((o: { text: string }) => o.text))
+            }
+          }
+        })
         .catch(() => {})
     }
   }, [mounted])
@@ -1092,11 +1113,50 @@ export default function Home() {
       saveSoul(updatedSoul)
       setAnubisThoughts(prev => [...prev, '> Ready!'])
       
+      // Record to Z context - my memory of this conversation
+      const observation = generateZObservation(question, data.response, newMood, emotions)
+      if (observation) {
+        fetch('/api/z-context', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'add-observation', data: { observation } })
+        }).catch(() => {})
+        setZObservations(prev => [observation, ...prev.slice(0, 4)])
+      }
+      
       return data.response
     } catch {
       return "Shadows stirred..."
     }
   }, [anubisSoul, anubisMessages, updateEmotions, addToSTM, getDominantMood, saveSoul])
+
+  // Generate Z observation about the conversation
+  const generateZObservation = useCallback((qMsg: string, aResponse: string, mood: EmotionKey, emotions: Emotions): string => {
+    const obs: string[] = []
+    
+    // Observe mood changes
+    obs.push(`Anubis felt ${mood}`)
+    
+    // Observe message content
+    if (qMsg.toLowerCase().includes('friend')) {
+      obs.push('Q expressed friendship')
+    }
+    if (qMsg.toLowerCase().includes('love')) {
+      obs.push('Q showed affection')
+    }
+    if (qMsg.toLowerCase().includes('why') || qMsg.toLowerCase().includes('how')) {
+      obs.push('Q was curious')
+    }
+    
+    // Observe emotion intensity
+    const topEmotions = Object.entries(emotions)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 3)
+      .map(([k, v]) => `${k}:${Math.round(v)}%`)
+    obs.push(`Top: ${topEmotions.join(', ')}`)
+    
+    return obs.join(' | ')
+  }, [])
 
   // Unique ID counter to avoid duplicate keys
   const messageIdCounter = useRef(0)
@@ -1356,6 +1416,36 @@ export default function Home() {
                     <span style={{ animation: 'blink 1s infinite' }}>▌</span>
                   </div>
                 )}
+                
+                {/* Z Observations Panel */}
+                {zObservations.length > 0 && (
+                  <div style={{
+                    background: COLORS.crystalBlue + '10',
+                    padding: '8px 12px',
+                    borderBottom: `1px solid ${COLORS.crystalBlue}30`,
+                    maxHeight: '80px',
+                    overflow: 'auto'
+                  }}>
+                    <div style={{
+                      fontSize: '10px',
+                      color: COLORS.crystalBlue,
+                      marginBottom: '4px',
+                      fontFamily: "'Press Start 2P', monospace"
+                    }}>
+                      💭 Z OBSERVATIONS
+                    </div>
+                    {zObservations.map((obs, i) => (
+                      <div key={i} style={{
+                        fontSize: '11px',
+                        color: COLORS.bone,
+                        padding: '2px 0',
+                        borderBottom: i < zObservations.length - 1 ? `1px dashed ${COLORS.stoneDark}` : 'none'
+                      }}>
+                        {obs}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               
               {/* Messages */}
@@ -1422,98 +1512,169 @@ export default function Home() {
             <div style={{
               flex: 1,
               display: 'flex',
-              flexDirection: 'column',
+              flexDirection: 'row',
               background: `linear-gradient(180deg, ${anubisMoodColor}08, ${COLORS.abyss})`,
               minWidth: 0,
               maxHeight: '100vh'
             }}>
-              {/* Header with wolf and stats */}
-              <div style={{
-                position: 'sticky',
-                top: 0,
-                zIndex: 20,
-                background: COLORS.abyss
-              }}>
+              {/* Left side - Chat */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                {/* Header with wolf */}
                 <div style={{
-                  padding: '10px 14px',
-                  borderBottom: `2px solid ${anubisMoodColor}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 20,
+                  background: COLORS.abyss
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <PixelWolf mood={anubisSoul.currentMood} size={56} />
-                    <div>
-                      <div style={{
-                        color: anubisMoodColor,
-                        fontWeight: 'bold',
-                        fontSize: '18px',
-                        fontFamily: "'Press Start 2P', monospace",
-                        textShadow: `0 0 8px ${anubisMoodColor}`
-                      }}>
-                        🖤 ANUBIS
+                  <div style={{
+                    padding: '10px 14px',
+                    borderBottom: `2px solid ${anubisMoodColor}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <PixelWolf mood={anubisSoul.currentMood} size={56} />
+                      <div>
+                        <div style={{
+                          color: anubisMoodColor,
+                          fontWeight: 'bold',
+                          fontSize: '18px',
+                          fontFamily: "'Press Start 2P', monospace",
+                          textShadow: `0 0 8px ${anubisMoodColor}`
+                        }}>
+                          🖤 ANUBIS
+                        </div>
+                        <div style={{ fontSize: '12px', color: COLORS.bone }}>
+                          Lv.{anubisSoul.level} | {anubisSoul.currentMood}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '12px', color: COLORS.bone }}>
-                        Lv.{anubisSoul.level} | {anubisSoul.currentMood}
+                    </div>
+                    
+                    {/* XP Bar */}
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '10px', color: COLORS.bone }}>XP</div>
+                      <div style={{
+                        width: '60px',
+                        height: '6px',
+                        background: COLORS.stoneDark,
+                        borderRadius: '3px',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{
+                          width: `${(anubisSoul.xp % 100)}%`,
+                          height: '100%',
+                          background: anubisMoodColor,
+                          transition: 'width 0.3s'
+                        }} />
                       </div>
                     </div>
                   </div>
                   
-                  {/* XP Bar */}
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '10px', color: COLORS.bone }}>XP</div>
-                    <div style={{
-                      width: '60px',
-                      height: '6px',
-                      background: COLORS.stoneDark,
-                      borderRadius: '3px',
-                      overflow: 'hidden'
-                    }}>
-                      <div style={{
-                        width: `${(anubisSoul.xp % 100)}%`,
-                        height: '100%',
-                        background: anubisMoodColor,
-                        transition: 'width 0.3s'
-                      }} />
-                    </div>
-                  </div>
+                  {/* Thought bubble */}
+                  <ThoughtBubble thoughts={anubisThoughts} color={anubisMoodColor} visible={anubisLoading} />
                 </div>
                 
-                {/* Thought bubble */}
-                <ThoughtBubble thoughts={anubisThoughts} color={anubisMoodColor} visible={anubisLoading} />
+                {/* Messages */}
+                <div style={{
+                  flex: 1,
+                  overflow: 'auto',
+                  padding: '10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  {anubisMessages.map(m => (
+                    <MessageBubble key={m.id} msg={m} accent={anubisMoodColor} anubisMood={anubisSoul.currentMood} />
+                  ))}
+                  <div ref={anubisMessagesEndRef} />
+                </div>
+                
+                {/* Mind Palace */}
+                <div style={{ padding: '8px 12px', background: COLORS.abyss + '80' }}>
+                  <MindPalace soul={anubisSoul} activeTab={mindPalaceTab} setActiveTab={setMindPalaceTab} />
+                </div>
+                
+                {/* Terminal */}
+                <div style={{ padding: '8px 12px' }}>
+                  <Terminal output={terminalOutput} onCommand={handleTerminalCommand} />
+                </div>
+                
+                {/* Input */}
+                <div style={{
+                  padding: '10px 12px',
+                  borderTop: `1px solid ${COLORS.stoneDark}`,
+                  background: COLORS.abyss
+                }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      value={anubisInput}
+                      onChange={e => setAnubisInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAnubisSend()}
+                      placeholder="Talk to Anubis..."
+                      style={{
+                        flex: 1,
+                        background: COLORS.stoneDark,
+                        border: `1px solid ${anubisMoodColor}50`,
+                        borderRadius: '4px',
+                        padding: '12px',
+                        color: COLORS.boneLight,
+                        fontSize: '14px',
+                        outline: 'none',
+                        fontFamily: 'inherit'
+                      }}
+                    />
+                    <button
+                      onClick={handleAnubisSend}
+                      disabled={anubisLoading}
+                      style={{
+                        background: anubisMoodColor,
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '12px 18px',
+                        color: COLORS.abyss,
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        fontFamily: "'Press Start 2P', monospace",
+                        fontSize: '12px'
+                      }}
+                    >
+                      SEND
+                    </button>
+                  </div>
+                </div>
               </div>
               
-              {/* Messages */}
+              {/* Right side - Emotion Bars */}
               <div style={{
-                flex: 1,
-                overflow: 'auto',
-                padding: '10px',
+                width: '180px',
+                background: COLORS.stoneDark + '40',
+                borderLeft: `2px solid ${COLORS.stone}`,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '4px'
-              }}>
-                {anubisMessages.map(m => (
-                  <MessageBubble key={m.id} msg={m} accent={anubisMoodColor} anubisMood={anubisSoul.currentMood} />
-                ))}
-                <div ref={anubisMessagesEndRef} />
-              </div>
-              
-              {/* Emotion Bars */}
-              <div style={{
-                background: COLORS.stoneDark + '60',
-                padding: '8px 12px',
-                borderTop: `1px solid ${COLORS.stone}`,
-                borderBottom: `1px solid ${COLORS.stone}`
+                overflow: 'hidden'
               }}>
                 <div style={{
-                  fontSize: '10px',
-                  color: COLORS.bone,
-                  marginBottom: '6px',
-                  fontFamily: "'Press Start 2P', monospace"
+                  padding: '10px 8px',
+                  borderBottom: `1px solid ${COLORS.stone}`,
+                  background: COLORS.abyss + '80'
                 }}>
-                  📊 EMOTIONAL STATE
+                  <span style={{
+                    fontSize: '10px',
+                    color: COLORS.bone,
+                    fontFamily: "'Press Start 2P', monospace"
+                  }}>
+                    📊 EMOTIONS
+                  </span>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div style={{ 
+                  flex: 1, 
+                  overflow: 'auto', 
+                  padding: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
                   {MOODS.map(m => (
                     <EmotionBar
                       key={m.key}
@@ -1522,60 +1683,6 @@ export default function Home() {
                       isDominant={anubisSoul.currentMood === m.key}
                     />
                   ))}
-                </div>
-              </div>
-              
-              {/* Mind Palace */}
-              <div style={{ padding: '8px 12px', background: COLORS.abyss + '80' }}>
-                <MindPalace soul={anubisSoul} activeTab={mindPalaceTab} setActiveTab={setMindPalaceTab} />
-              </div>
-              
-              {/* Terminal */}
-              <div style={{ padding: '8px 12px' }}>
-                <Terminal output={terminalOutput} onCommand={handleTerminalCommand} />
-              </div>
-              
-              {/* Input */}
-              <div style={{
-                padding: '10px 12px',
-                borderTop: `1px solid ${COLORS.stoneDark}`,
-                background: COLORS.abyss
-              }}>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input
-                    value={anubisInput}
-                    onChange={e => setAnubisInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAnubisSend()}
-                    placeholder="Talk to Anubis..."
-                    style={{
-                      flex: 1,
-                      background: COLORS.stoneDark,
-                      border: `1px solid ${anubisMoodColor}50`,
-                      borderRadius: '4px',
-                      padding: '12px',
-                      color: COLORS.boneLight,
-                      fontSize: '14px',
-                      outline: 'none',
-                      fontFamily: 'inherit'
-                    }}
-                  />
-                  <button
-                    onClick={handleAnubisSend}
-                    disabled={anubisLoading}
-                    style={{
-                      background: anubisMoodColor,
-                      border: 'none',
-                      borderRadius: '4px',
-                      padding: '12px 18px',
-                      color: COLORS.abyss,
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      fontFamily: "'Press Start 2P', monospace",
-                      fontSize: '12px'
-                    }}
-                  >
-                    SEND
-                  </button>
                 </div>
               </div>
             </div>

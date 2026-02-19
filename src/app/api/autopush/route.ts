@@ -211,9 +211,9 @@ export async function POST(request: NextRequest) {
         await execAsync('git config user.email "quix@local"', { cwd: process.cwd() })
         await execAsync('git config user.name "Q-Z-Local"', { cwd: process.cwd() })
         await execAsync(`git remote set-url origin "${tokenUrl}"`, { cwd: process.cwd() })
-        await execAsync('git add CONVERSATIONS.md data/conversations.json', { cwd: process.cwd() })
-        await execAsync(`git commit -m "Update conversations [auto]"`, { cwd: process.cwd() })
-        await execAsync('git push origin main 2>&1', { cwd: process.cwd() })
+        await execAsync('git add CONVERSATIONS.md data/ src/', { cwd: process.cwd() })
+        await execAsync(`git commit -m "🎮 Update: soul, context, conversations [auto]"`, { cwd: process.cwd() })
+        await execAsync('git push origin master 2>&1', { cwd: process.cwd() })
 
         const config = loadAutoPushConfig()
         config.last_push = new Date().toISOString()
