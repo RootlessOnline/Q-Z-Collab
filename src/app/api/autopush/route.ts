@@ -6,6 +6,20 @@ import { promisify } from 'util'
 
 const execAsync = promisify(exec)
 
+// GitHub config - read from local config file (not in repo)
+const CONFIG_FILE = path.join(process.cwd(), 'data', 'github_config.json')
+
+function getGitHubConfig(): { token: string; repo: string } {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'))
+    }
+  } catch (e) {
+    console.error('Failed to load github config:', e)
+  }
+  return { token: '', repo: 'RootlessOnline/Q-Z-Collab' }
+}
+
 // Dual Chat Logger - Tracks both Z and Anubis conversations!
 const DATA_DIR = path.join(process.cwd(), 'data')
 const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json')
@@ -181,8 +195,22 @@ export async function POST(request: NextRequest) {
       fs.writeFileSync(jsonPath, JSON.stringify(convos, null, 2))
 
       try {
+        // Get GitHub config from local file
+        const { token, repo } = getGitHubConfig()
+        
+        if (!token) {
+          return NextResponse.json({
+            success: false,
+            error: 'No GitHub token configured. Create data/github_config.json with your token.'
+          })
+        }
+        
+        // Set up git with token-embedded URL for authentication
+        const tokenUrl = `https://${token}@github.com/${repo}.git`
+        
         await execAsync('git config user.email "quix@local"', { cwd: process.cwd() })
         await execAsync('git config user.name "Q-Z-Local"', { cwd: process.cwd() })
+        await execAsync(`git remote set-url origin "${tokenUrl}"`, { cwd: process.cwd() })
         await execAsync('git add CONVERSATIONS.md data/conversations.json', { cwd: process.cwd() })
         await execAsync(`git commit -m "Update conversations [auto]"`, { cwd: process.cwd() })
         await execAsync('git push origin main 2>&1', { cwd: process.cwd() })
