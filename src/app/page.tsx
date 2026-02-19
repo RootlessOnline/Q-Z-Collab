@@ -23,16 +23,10 @@ interface Theme {
   text: string
 }
 
-interface Project {
-  name: string
-  path: string
-  created: string
-  notes: { text: string; timestamp: string }[]
-}
-
-interface Projects {
-  current: string
-  projects: Record<string, Project>
+interface SyncStatus {
+  last_sync: string
+  updates_available: boolean
+  version: string
 }
 
 export default function Home() {
@@ -41,19 +35,22 @@ export default function Home() {
       id: 0,
       sender: 'system',
       text: `╔═══════════════════════════════════════════════════════════════╗
-║           Q-Z-COLLAB - Private Workspace                      ║
+║           Q-Z-COLLAB - Local Instance                         ║
 ║                                                               ║
-║     Q (You) ◄──────────────────► Z (AI Assistant)             ║
+║     Q (You) ◄──────────────────► Z (Local AI)                 ║
 ║                                                               ║
-║     RULE: Z can NEVER speak for Q. Q is in control.           ║
+║     🧠 Running on YOUR Ollama                                 ║
+║     🔄 Auto-syncs from GitHub repo                            ║
+║     👁️ Real Z can observe & improve responses                 ║
+║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 
-Type 'z <message>' to talk to Z
-Type 'code' to open code editor
+Type 'z <message>' to talk to Local Z
+Type 'sync' to pull updates from repo
+Type 'code' to edit the UI
 Type 'theme' to customize colors
-Type 'memory' to see what Z remembers
 
-🌲🍂🦌 Running on YOUR machine with Ollama!`,
+🌲🍂🦌`,
       time: new Date().toLocaleTimeString()
     }
   ])
@@ -62,7 +59,7 @@ Type 'memory' to see what Z remembers
   const [loading, setLoading] = useState(false)
   const [showCode, setShowCode] = useState(false)
   const [showTheme, setShowTheme] = useState(false)
-  const [showMemory, setShowMemory] = useState(false)
+  const [showSync, setShowSync] = useState(false)
   const [codeContent, setCodeContent] = useState('')
   const [currentFile, setCurrentFile] = useState('')
   const [files, setFiles] = useState<CodeFile[]>([])
@@ -73,7 +70,8 @@ Type 'memory' to see what Z remembers
     surface: '#1a1a2e',
     text: '#e0e0e0'
   })
-  const [projects, setProjects] = useState<Projects | null>(null)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
+  const [syncing, setSyncing] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -84,11 +82,10 @@ Type 'memory' to see what Z remembers
     scrollToBottom()
   }, [messages])
 
-  // Load files, theme, and projects on mount
   useEffect(() => {
     loadFiles('src/app')
     loadTheme()
-    loadProjects()
+    loadSyncStatus()
   }, [])
 
   const loadFiles = async (dir: string) => {
@@ -123,9 +120,7 @@ Type 'memory' to see what Z remembers
         body: JSON.stringify({ file: currentFile, content: codeContent })
       })
       const data = await res.json()
-      if (data.success) {
-        addSystemMessage(`✅ ${data.message}`)
-      }
+      if (data.success) addSystemMessage(`✅ ${data.message}`)
     } catch (e) {
       console.error('Failed to save:', e)
     }
@@ -155,14 +150,34 @@ Type 'memory' to see what Z remembers
     }
   }
 
-  const loadProjects = async () => {
+  const loadSyncStatus = async () => {
     try {
-      const res = await fetch('/api/memory?action=projects')
+      const res = await fetch('/api/chatlog?action=sync-status')
       const data = await res.json()
-      if (data.projects) setProjects(data)
+      setSyncStatus(data)
     } catch (e) {
-      console.error('Failed to load projects:', e)
+      console.error('Failed to load sync status:', e)
     }
+  }
+
+  const doSync = async () => {
+    setSyncing(true)
+    addSystemMessage('🔄 Syncing from GitHub repo...')
+    try {
+      const res = await fetch('/api/chat?action=sync')
+      const data = await res.json()
+      if (data.success && data.updated) {
+        addSystemMessage(`✅ Updated! ${data.message}\n\nRestart the server to apply changes.`)
+      } else if (data.success) {
+        addSystemMessage(`✓ ${data.message}`)
+      } else {
+        addSystemMessage(`❌ Sync failed: ${data.error}`)
+      }
+      loadSyncStatus()
+    } catch (e) {
+      addSystemMessage('❌ Sync failed. Check your connection.')
+    }
+    setSyncing(false)
   }
 
   const addSystemMessage = (text: string) => {
@@ -209,11 +224,17 @@ Type 'memory' to see what Z remembers
     const time = new Date().toLocaleTimeString()
     const text = input.trim()
     
-    // Command handling
+    // Commands
+    if (text.toLowerCase() === 'sync') {
+      setInput('')
+      doSync()
+      return
+    }
+
     if (text.toLowerCase() === 'code') {
       setShowCode(!showCode)
       setShowTheme(false)
-      setShowMemory(false)
+      setShowSync(false)
       setInput('')
       addSystemMessage(showCode ? '📝 Code editor closed' : '📝 Code editor opened!')
       return
@@ -222,18 +243,18 @@ Type 'memory' to see what Z remembers
     if (text.toLowerCase() === 'theme') {
       setShowTheme(!showTheme)
       setShowCode(false)
-      setShowMemory(false)
+      setShowSync(false)
       setInput('')
-      addSystemMessage(showTheme ? '🎨 Theme panel closed' : '🎨 Theme panel opened! Customize your colors!')
+      addSystemMessage(showTheme ? '🎨 Theme panel closed' : '🎨 Theme panel opened!')
       return
     }
 
-    if (text.toLowerCase() === 'memory') {
-      setShowMemory(!showMemory)
+    if (text.toLowerCase() === 'status') {
+      setShowSync(!showSync)
       setShowCode(false)
       setShowTheme(false)
       setInput('')
-      addSystemMessage(showMemory ? '💾 Memory panel closed' : '💾 Memory panel opened! See what Z remembers.')
+      addSystemMessage(showSync ? '📊 Status panel closed' : '📊 Status panel opened!')
       return
     }
     
@@ -257,9 +278,10 @@ Type 'memory' to see what Z remembers
 │   !help, !h    - Show this help         │
 │   !clear       - Clear chat             │
 │   !bionic      - Toggle bionic reading  │
+│   sync         - Pull updates from repo │
 │   code         - Open code editor       │
 │   theme        - Open theme customizer  │
-│   memory       - Open memory panel      │
+│   status       - Show sync status       │
 │                                         │
 │ MODES:                                  │
 │   z <text>     - Ask Z something        │
@@ -320,7 +342,7 @@ Type 'memory' to see what Z remembers
     }}>
       {/* Main Chat Area */}
       <div style={{
-        flex: (showCode || showTheme || showMemory) ? '0 0 50%' : 1,
+        flex: (showCode || showTheme || showSync) ? '0 0 50%' : 1,
         display: 'flex',
         flexDirection: 'column',
         transition: 'flex 0.3s',
@@ -329,45 +351,47 @@ Type 'memory' to see what Z remembers
         {/* Header */}
         <div style={{
           background: `linear-gradient(90deg, ${theme.primary}20, ${theme.secondary}20)`,
-          padding: '1rem 2rem',
+          padding: '0.8rem 1.5rem',
           borderBottom: '1px solid #333',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: '1rem'
+          gap: '0.5rem'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <span style={{ fontSize: '1.5rem' }}>🌲</span>
-            <h1 style={{ margin: 0, fontSize: '1.5rem', color: theme.primary }}>Q-Z-Collab</h1>
-            <span style={{ fontSize: '1.5rem' }}>🦌</span>
-            <span style={{ color: '#888', fontSize: '0.75rem' }}>Powered by Ollama</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+            <span style={{ fontSize: '1.3rem' }}>🌲</span>
+            <h1 style={{ margin: 0, fontSize: '1.2rem', color: theme.primary }}>Q-Z-Collab</h1>
+            <span style={{ fontSize: '1.3rem' }}>🦌</span>
+            <span style={{ color: '#888', fontSize: '0.7rem', background: '#333', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>
+              LOCAL
+            </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button onClick={() => { setShowCode(!showCode); setShowTheme(false); setShowMemory(false); }}
-              style={{ background: showCode ? `${theme.primary}50` : '#333', border: `1px solid ${theme.primary}`, color: theme.primary, padding: '0.4rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <button onClick={doSync} disabled={syncing}
+              style={{ background: syncing ? '#555' : '#00ff0020', border: '1px solid #00ff00', color: '#00ff00', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: syncing ? 'wait' : 'pointer', fontSize: '0.75rem' }}>
+              {syncing ? '⏳' : '🔄'} Sync
+            </button>
+            <button onClick={() => { setShowCode(!showCode); setShowTheme(false); setShowSync(false); }}
+              style={{ background: showCode ? `${theme.primary}50` : '#333', border: `1px solid ${theme.primary}`, color: theme.primary, padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
               📝 Code
             </button>
-            <button onClick={() => { setShowTheme(!showTheme); setShowCode(false); setShowMemory(false); }}
-              style={{ background: showTheme ? `${theme.secondary}50` : '#333', border: `1px solid ${theme.secondary}`, color: theme.secondary, padding: '0.4rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}>
-              🎨 Theme
-            </button>
-            <button onClick={() => { setShowMemory(!showMemory); setShowCode(false); setShowTheme(false); }}
-              style={{ background: showMemory ? '#00ff0050' : '#333', border: '1px solid #00ff00', color: '#00ff00', padding: '0.4rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                💾 Memory
+            <button onClick={() => { setShowTheme(!showTheme); setShowCode(false); setShowSync(false); }}
+              style={{ background: showTheme ? `${theme.secondary}50` : '#333', border: `1px solid ${theme.secondary}`, color: theme.secondary, padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              🎨
             </button>
             <button onClick={() => setBionic(!bionic)}
-              style={{ background: bionic ? `${theme.primary}30` : '#333', border: '1px solid #555', color: bionic ? theme.primary : '#888', padding: '0.4rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}>
-              Bionic: {bionic ? '✓' : '✗'}
+              style={{ background: bionic ? `${theme.primary}30` : '#333', border: '1px solid #555', color: bionic ? theme.primary : '#888', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              {bionic ? '📖' : '📄'}
             </button>
           </div>
         </div>
 
         {/* Messages */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '1rem 2rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {messages.map((msg) => (
             <div key={msg.id} style={{
-              padding: '0.8rem 1rem',
+              padding: '0.7rem 1rem',
               borderRadius: '8px',
               background: msg.sender === 'Q' 
                 ? `linear-gradient(135deg, ${theme.primary}10, ${theme.primary}05)`
@@ -388,39 +412,39 @@ Type 'memory' to see what Z remembers
                 <span style={{ fontWeight: 'bold', color: msg.sender === 'Q' ? theme.primary : msg.sender === 'Z' ? theme.secondary : '#888' }}>
                   {msg.sender === 'system' ? '◆' : msg.sender}
                 </span>
-                <span style={{ color: '#666', fontSize: '0.75rem' }}>{msg.time}</span>
+                <span style={{ color: '#666', fontSize: '0.7rem' }}>{msg.time}</span>
               </div>
-              <div style={{ lineHeight: '1.6' }}>
+              <div style={{ lineHeight: '1.5', fontSize: '0.9rem' }}>
                 {msg.sender === 'system' ? msg.text : bionicRender(msg.text)}
               </div>
             </div>
           ))}
           {loading && (
             <div style={{
-              padding: '0.8rem 1rem', borderRadius: '8px',
+              padding: '0.7rem 1rem', borderRadius: '8px',
               background: `linear-gradient(135deg, ${theme.secondary}10, ${theme.secondary}05)`,
               border: `1px solid ${theme.secondary}40`,
               alignSelf: 'flex-start'
             }}>
-              <span style={{ color: theme.secondary }}>🧠 Z thinking with Ollama...</span>
+              <span style={{ color: theme.secondary }}>🧠 Z thinking (Ollama)...</span>
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
         {/* Input */}
-        <div style={{ padding: '1rem 2rem', borderTop: '1px solid #333', background: theme.background }}>
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
+        <div style={{ padding: '0.8rem 1rem', borderTop: '1px solid #333', background: theme.background }}>
+          <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'flex-end' }}>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type 'z <msg>' to ask Z, 'code'/'theme'/'memory' for panels..."
+              placeholder="z <msg> to ask Z • sync • code • theme"
               disabled={loading}
               style={{
                 flex: 1, background: theme.surface, border: '1px solid #333', borderRadius: '8px',
-                padding: '0.8rem 1rem', color: theme.text, fontSize: '1rem', fontFamily: 'monospace',
-                resize: 'none', minHeight: '50px', maxHeight: '150px'
+                padding: '0.7rem 1rem', color: theme.text, fontSize: '0.9rem', fontFamily: 'monospace',
+                resize: 'none', minHeight: '45px', maxHeight: '120px'
               }}
             />
             <button
@@ -428,8 +452,8 @@ Type 'memory' to see what Z remembers
               disabled={loading}
               style={{
                 background: loading ? '#333' : `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})`,
-                border: 'none', borderRadius: '8px', padding: '0.8rem 1.5rem',
-                color: loading ? '#666' : '#000', fontWeight: 'bold', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '1rem'
+                border: 'none', borderRadius: '8px', padding: '0.7rem 1.2rem',
+                color: loading ? '#666' : '#000', fontWeight: 'bold', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '0.9rem'
               }}
             >
               Send
@@ -441,19 +465,19 @@ Type 'memory' to see what Z remembers
       {/* Code Editor Panel */}
       {showCode && (
         <div style={{ flex: 1, borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', background: theme.background }}>
-          <div style={{ padding: '0.8rem 1rem', borderBottom: '1px solid #333', background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ color: theme.primary, fontWeight: 'bold' }}>📝 {currentFile || 'No file selected'}</span>
+          <div style={{ padding: '0.6rem 1rem', borderBottom: '1px solid #333', background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ color: theme.primary, fontWeight: 'bold', fontSize: '0.9rem' }}>📝 {currentFile || 'No file'}</span>
             <button onClick={saveFile} disabled={!currentFile}
-              style={{ background: currentFile ? '#00ff0030' : '#222', border: '1px solid #00ff00', color: currentFile ? '#00ff00' : '#666', padding: '0.3rem 0.8rem', borderRadius: '4px', cursor: currentFile ? 'pointer' : 'not-allowed', fontSize: '0.8rem' }}>
+              style={{ background: currentFile ? '#00ff0020' : '#222', border: '1px solid #00ff00', color: currentFile ? '#00ff00' : '#666', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: currentFile ? 'pointer' : 'not-allowed', fontSize: '0.75rem' }}>
               Save
             </button>
           </div>
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-            <div style={{ width: '180px', borderRight: '1px solid #333', overflow: 'auto', padding: '0.5rem' }}>
-              <div style={{ color: '#888', fontSize: '0.75rem', marginBottom: '0.5rem' }}>FILES</div>
+            <div style={{ width: '160px', borderRight: '1px solid #333', overflow: 'auto', padding: '0.5rem' }}>
+              <div style={{ color: '#888', fontSize: '0.7rem', marginBottom: '0.5rem' }}>FILES</div>
               {files.map((f, i) => (
                 <div key={i} onClick={() => f.type === 'file' && loadFile(f.path)}
-                  style={{ padding: '0.3rem 0.5rem', cursor: f.type === 'file' ? 'pointer' : 'default', color: f.type === 'directory' ? theme.secondary : theme.text, fontSize: '0.85rem', background: f.path === currentFile ? `${theme.primary}20` : 'transparent', borderRadius: '4px', marginBottom: '2px' }}>
+                  style={{ padding: '0.25rem 0.4rem', cursor: f.type === 'file' ? 'pointer' : 'default', color: f.type === 'directory' ? theme.secondary : theme.text, fontSize: '0.8rem', background: f.path === currentFile ? `${theme.primary}20` : 'transparent', borderRadius: '4px', marginBottom: '2px' }}>
                   {f.type === 'directory' ? '📁' : '📄'} {f.name}
                 </div>
               ))}
@@ -461,8 +485,8 @@ Type 'memory' to see what Z remembers
             <textarea
               value={codeContent}
               onChange={(e) => setCodeContent(e.target.value)}
-              placeholder="Select a file to view/edit..."
-              style={{ flex: 1, background: theme.background, border: 'none', padding: '1rem', color: theme.text, fontSize: '0.9rem', fontFamily: 'monospace', resize: 'none', lineHeight: '1.5' }}
+              placeholder="Select a file..."
+              style={{ flex: 1, background: theme.background, border: 'none', padding: '0.8rem', color: theme.text, fontSize: '0.85rem', fontFamily: 'monospace', resize: 'none', lineHeight: '1.4' }}
             />
           </div>
         </div>
@@ -470,72 +494,19 @@ Type 'memory' to see what Z remembers
 
       {/* Theme Panel */}
       {showTheme && (
-        <div style={{ flex: 1, borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', background: theme.background, padding: '1rem' }}>
-          <h2 style={{ color: theme.primary, marginTop: 0 }}>🎨 Theme Customizer</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem' }}>Primary Color (Q)</label>
-              <input type="color" value={theme.primary} onChange={(e) => setTheme({ ...theme, primary: e.target.value })}
-                style={{ width: '100%', height: '40px', cursor: 'pointer' }} />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem' }}>Secondary Color (Z)</label>
-              <input type="color" value={theme.secondary} onChange={(e) => setTheme({ ...theme, secondary: e.target.value })}
-                style={{ width: '100%', height: '40px', cursor: 'pointer' }} />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem' }}>Background</label>
-              <input type="color" value={theme.background} onChange={(e) => setTheme({ ...theme, background: e.target.value })}
-                style={{ width: '100%', height: '40px', cursor: 'pointer' }} />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem' }}>Surface</label>
-              <input type="color" value={theme.surface} onChange={(e) => setTheme({ ...theme, surface: e.target.value })}
-                style={{ width: '100%', height: '40px', cursor: 'pointer' }} />
-            </div>
-            <button onClick={() => saveTheme(theme)}
-              style={{ marginTop: '1rem', background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})`, border: 'none', borderRadius: '8px', padding: '0.8rem', color: '#000', fontWeight: 'bold', cursor: 'pointer' }}>
-              Save Theme
-            </button>
-            <button onClick={() => saveTheme({ primary: '#00d4ff', secondary: '#ff00ff', background: '#0a0a0a', surface: '#1a1a2e', text: '#e0e0e0' })}
-              style={{ background: '#333', border: '1px solid #555', borderRadius: '8px', padding: '0.8rem', color: theme.text, cursor: 'pointer' }}>
-              Reset to Default
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Memory Panel */}
-      {showMemory && (
         <div style={{ flex: 1, borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', background: theme.background, padding: '1rem', overflow: 'auto' }}>
-          <h2 style={{ color: '#00ff00', marginTop: 0 }}>💾 Z's Memory</h2>
-          {projects && (
-            <div>
-              <h3 style={{ color: theme.primary }}>📁 Projects</h3>
-              <div style={{ marginBottom: '1rem' }}>
-                {Object.entries(projects.projects).map(([id, proj]) => (
-                  <div key={id} style={{ padding: '0.5rem', background: projects.current === id ? `${theme.primary}20` : 'transparent', borderRadius: '4px', marginBottom: '0.5rem' }}>
-                    <strong>{proj.name}</strong>
-                    <div style={{ color: '#888', fontSize: '0.8rem' }}>{proj.path}</div>
-                    {proj.notes.length > 0 && (
-                      <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
-                        📝 {proj.notes.length} notes
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+          <h2 style={{ color: theme.primary, marginTop: 0, fontSize: '1rem' }}>🎨 Theme</h2>
+          {['primary', 'secondary', 'background', 'surface', 'text'].map((key) => (
+            <div key={key} style={{ marginBottom: '0.8rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem', textTransform: 'capitalize' }}>{key}</label>
+              <input type="color" value={theme[key as keyof Theme]} onChange={(e) => setTheme({ ...theme, [key]: e.target.value })}
+                style={{ width: '100%', height: '35px', cursor: 'pointer' }} />
             </div>
-          )}
-          <div style={{ color: '#888', fontSize: '0.85rem' }}>
-            <p>💡 Z remembers:</p>
-            <ul>
-              <li>Your conversations</li>
-              <li>Your color preferences</li>
-              <li>Your projects and notes</li>
-              <li>Everything stays on YOUR machine!</li>
-            </ul>
-          </div>
+          ))}
+          <button onClick={() => saveTheme(theme)}
+            style={{ marginTop: '0.5rem', background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})`, border: 'none', borderRadius: '8px', padding: '0.6rem', color: '#000', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}>
+            Save Theme
+          </button>
         </div>
       )}
     </div>
