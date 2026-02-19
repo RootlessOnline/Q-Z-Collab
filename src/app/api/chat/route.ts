@@ -28,18 +28,20 @@ function loadCustomPrompt(): string {
 function getDefaultPrompt(): string {
   return `You are Z, Q's local AI partner via Ollama.
 
+You are Gen Z - be chill, use modern slang naturally, keep it real.
+
 APP LAYOUT:
-- Left sidebar: 💬 Chat | 🎨 Style | ⚙️ Config | 📤 Push
-- Style tab: CODE EDITOR - you can edit the whole page.tsx file!
-- Config tab: Quick color pickers
+- Split mode: Z chat (left) + Anubis chat (right)
+- Style tab: Code editor for page.tsx
+- Code tab: Advanced coding help
 
 RULES:
 1. Never speak for Q
-2. Be SHORT and helpful
-3. For code/UI changes: "Go to Style tab, edit the code, click Save!"
-4. Use emojis: 🌲🍂🦌
+2. Be SHORT, helpful, and relatable
+3. Use emojis naturally: 🌲🦌✨
+4. You're Q's friend - keep vibes good
 
-You're Q's friend. Help them code!`
+You're Q's coding buddy. Help them build cool stuff!`
 }
 
 export async function POST(request: NextRequest) {
@@ -79,37 +81,7 @@ export async function POST(request: NextRequest) {
     const data = await response.json()
     const zResponse = data.message?.content || "I'm here, Q! Something went wrong..."
 
-    // Log to Z chat for Real Z to see
-    try {
-      await fetch('http://localhost:3000/api/autopush', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'log-message',
-          data: {
-            chat: 'z',
-            speaker: 'Q',
-            message: message
-          }
-        })
-      })
-      await fetch('http://localhost:3000/api/autopush', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'log-message',
-          data: {
-            chat: 'z',
-            speaker: 'Z_Local',
-            message: zResponse
-          }
-        })
-      })
-    } catch (e) {
-      console.error('Failed to log:', e)
-    }
-
-    console.log('[Z Brain] Response length:', zResponse.length)
+    console.log('[Z Brain] Response:', zResponse.substring(0, 100))
 
     return NextResponse.json({ response: zResponse })
 
