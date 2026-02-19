@@ -9,6 +9,7 @@ const MOODS = ['happy', 'angry', 'annoyed', 'pondering', 'reflecting', 'curious'
 interface Soul {
   mood: typeof MOODS[number]
   memories: string[]
+  moodIntensity: Record<string, number>
   personality: { openness: number; mystery: number; playfulness: number; wisdom: number }
   conversations: number
 }
@@ -120,10 +121,15 @@ CURRENT STATE:
       newMemories = newMemories.slice(-20)
     }
 
-    // Build updated soul
+    // Build updated soul with mood intensity tracking
+    const currentIntensity = soul?.moodIntensity || {}
     const updatedSoul: Partial<Soul> = {
       mood: newMood,
       memories: newMemories,
+      moodIntensity: {
+        ...currentIntensity,
+        [newMood]: Math.min((currentIntensity[newMood] || 0) + 5, 100)
+      },
       personality: soul?.personality || { openness: 50, mystery: 80, playfulness: 40, wisdom: 70 }
     }
 
