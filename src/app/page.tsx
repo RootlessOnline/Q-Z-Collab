@@ -12,26 +12,33 @@ interface Message {
 type Mode = 'chat' | 'code' | 'config'
 
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 0,
-      sender: 'system',
-      text: `🌲 Q-Z-Collab 🦌
-
-Just type to chat with Z!
-Push 📤 to send chat to Real Z`,
-      time: new Date().toLocaleTimeString()
-    }
-  ])
+  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState<Mode>('chat')
   const [pushing, setPushing] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Code mode state - track the actual background color
   const [bgColor, setBgColor] = useState('#0a0a0a')
   const [primaryColor, setPrimaryColor] = useState('#00d4ff')
+
+  // Set initial message after mount to avoid hydration error
+  useEffect(() => {
+    if (!mounted) {
+      setMounted(true)
+      setMessages([{
+        id: 0,
+        sender: 'system',
+        text: `🌲 Q-Z-Collab 🦌
+
+Just type to chat with Z!
+Push 📤 to send chat to Real Z`,
+        time: new Date().toLocaleTimeString()
+      }])
+    }
+  }, [mounted])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -182,6 +189,9 @@ Push 📤 to send chat to Real Z`,
               flexDirection: 'column',
               gap: '0.5rem'
             }}>
+              {!mounted && (
+                <div style={{ color: '#666', padding: '1rem' }}>Loading...</div>
+              )}
               {messages.map(msg => (
                 <div key={msg.id} style={{
                   padding: '0.7rem 1rem',
