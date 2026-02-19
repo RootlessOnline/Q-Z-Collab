@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       const backupFile = path.join(BACKUP_DIR, `soul_${timestamp}.json`)
       
       const soulData = {
-        version: '2.0',
+        version: '3.0',
         lastUpdated: now.toISOString(),
         soul: soul
       }
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
     
     // Default: Save soul to main file
     const soulData = {
-      version: '2.0',
+      version: '3.0',
       lastUpdated: new Date().toISOString(),
       soul: soul
     }

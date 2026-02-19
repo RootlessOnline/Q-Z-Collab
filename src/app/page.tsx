@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🎮 TYPES & INTERFACES
+// 🎮 V3 TYPES & INTERFACES
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface Message {
@@ -28,11 +28,27 @@ interface Emotions {
   mysterious: number
 }
 
+// V3: Moral Compass Weight System
+interface MemoryWeights {
+  timesFelt: number      // Base weight: 1.00
+  timesPromoted: number  // Weight: 1.33
+  timesRejected: number  // Weight: 0.72
+  timesAscended: number  // Weight: 1.73 (Core memories)
+}
+
+// V3: Memory Fate types
+type MemoryFate = 'none' | 'ascended' | 'promoted' | 'fading' | 'reflected'
+
+// V3: Enhanced Short Term Thought with slot position and fate
 interface ShortTermThought {
   id: string
   thought: string
   timestamp: Date
   emotions: Partial<Emotions>
+  slot: number // 1-6
+  glyphWord?: string // One word chosen during GLYPH reflection
+  fate: MemoryFate
+  reflectionTimestamp?: Date
 }
 
 interface GoldenMemory {
@@ -41,6 +57,7 @@ interface GoldenMemory {
   timestamp: Date
   emotions: Partial<Emotions>
   reflection: string
+  glyphWord?: string
 }
 
 interface SelfRealization {
@@ -50,6 +67,26 @@ interface SelfRealization {
   discoveredAt: Date
   emotionCombo: EmotionKey[]
   timesFelt: number
+  color?: string
+  faceDescription?: string
+}
+
+// V3: Discovered Emotion (from ASCENDED memories)
+interface DiscoveredEmotion {
+  id: string
+  word: string
+  color: string
+  faceDescription: string
+  discoveredAt: Date
+  fromMemory: string
+}
+
+// V3: Personality Trait for display
+interface PersonalityTrait {
+  name: string
+  value: number
+  icon: string
+  description: string
 }
 
 interface AnubisSoul {
@@ -58,14 +95,18 @@ interface AnubisSoul {
   shortTermMemory: ShortTermThought[]
   goldenMemories: GoldenMemory[]
   selfRealizations: SelfRealization[]
+  discoveredEmotions: DiscoveredEmotion[]
+  moralCompass: Record<string, MemoryWeights>
   personalityCore: {
     baseEmotions: Emotions
     traits: string[]
     conversationsHad: number
     created: Date
   }
+  personalityTraits: PersonalityTrait[]
   level: number
   xp: number
+  lastReflection?: Date
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -88,6 +129,10 @@ const COLORS = {
   shadowPurple: '#4a2a5a',
   crystalBlue: '#2a4a6a',
   soulPurple: '#6a3a8a',
+  
+  // Glyph colors
+  glyphGold: '#d4a62a',
+  glyphPurple: '#8a4aba',
   
   // Text
   bone: '#8a8a9a',
@@ -120,11 +165,33 @@ const MOODS: { key: EmotionKey; icon: string; color: string }[] = [
 ]
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🐺 PIXEL WOLF FACE COMPONENT (64x64 with SVG effects)
+// 🐺 V3 PIXEL WOLF FACE COMPONENT (140x140 with animations)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey; size?: number; animate?: boolean }) => {
+const PixelWolf = memo(({ mood, size = 140, animate = true }: { mood: EmotionKey; size?: number; animate?: boolean }) => {
   const moodColor = COLORS.moods[mood] || COLORS.moods.mysterious
+  const [isBlinking, setIsBlinking] = useState(false)
+  const [earTwitch, setEarTwitch] = useState(false)
+  
+  // Blink every 3-5 seconds
+  useEffect(() => {
+    if (!animate) return
+    const blinkInterval = setInterval(() => {
+      setIsBlinking(true)
+      setTimeout(() => setIsBlinking(false), 150)
+    }, 3000 + Math.random() * 2000)
+    return () => clearInterval(blinkInterval)
+  }, [animate])
+  
+  // Random ear twitch
+  useEffect(() => {
+    if (!animate) return
+    const twitchInterval = setInterval(() => {
+      setEarTwitch(true)
+      setTimeout(() => setEarTwitch(false), 200)
+    }, 2000 + Math.random() * 3000)
+    return () => clearInterval(twitchInterval)
+  }, [animate])
   
   // Each mood has unique pixel patterns
   const getMoodPattern = () => {
@@ -133,7 +200,7 @@ const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey;
         return {
           eyes: 'wide-open',
           mouth: 'smile',
-          extras: ['sparkles'],
+          extras: ['sparkles', 'hearts'],
           browStyle: 'normal'
         }
       case 'angry':
@@ -200,7 +267,13 @@ const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey;
   const pixelSize = Math.floor(size / 16)
   
   return (
-    <div style={{ width: size, height: size, position: 'relative', flexShrink: 0 }}>
+    <div style={{ 
+      width: size, 
+      height: size, 
+      position: 'relative', 
+      flexShrink: 0,
+      animation: animate ? 'wolfBreathing 3s ease-in-out infinite' : 'none'
+    }}>
       {/* Base pixel wolf using CSS box-shadow technique */}
       <div 
         style={{
@@ -211,7 +284,7 @@ const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey;
           height: pixelSize,
           color: moodColor,
           background: 'transparent',
-          boxShadow: generatePixelWolfShadow(mood, pixelSize, moodColor),
+          boxShadow: generatePixelWolfShadow(mood, pixelSize, moodColor, isBlinking, earTwitch),
           transform: 'translate(0, 0)'
         }}
       />
@@ -226,7 +299,7 @@ const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey;
         <defs>
           {/* Glow filter */}
           <filter id={`glow-${mood}`} x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+            <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
             <feMerge>
               <feMergeNode in="coloredBlur"/>
               <feMergeNode in="SourceGraphic"/>
@@ -238,33 +311,47 @@ const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey;
             <stop offset="0%" stopColor={moodColor} stopOpacity="0.8"/>
             <stop offset="100%" stopColor={moodColor} stopOpacity="0"/>
           </radialGradient>
+          
+          {/* Particle filter */}
+          <filter id="particleGlow">
+            <feGaussianBlur stdDeviation="1.5"/>
+          </filter>
         </defs>
         
         {/* Eye glows */}
-        {(pattern.eyes === 'wide-open' || pattern.eyes === 'big-round') && (
+        {(pattern.eyes === 'wide-open' || pattern.eyes === 'big-round') && !isBlinking && (
           <>
-            <circle cx={size * 0.3} cy={size * 0.35} r={pixelSize * 1.5} fill={moodColor} opacity="0.6" filter={`url(#glow-${mood})`}>
+            <circle cx={size * 0.3} cy={size * 0.35} r={pixelSize * 2} fill={moodColor} opacity="0.6" filter={`url(#glow-${mood})`}>
               {animate && <animate attributeName="opacity" values="0.4;0.7;0.4" dur="2s" repeatCount="indefinite"/>}
             </circle>
-            <circle cx={size * 0.7} cy={size * 0.35} r={pixelSize * 1.5} fill={moodColor} opacity="0.6" filter={`url(#glow-${mood})`}>
+            <circle cx={size * 0.7} cy={size * 0.35} r={pixelSize * 2} fill={moodColor} opacity="0.6" filter={`url(#glow-${mood})`}>
               {animate && <animate attributeName="opacity" values="0.4;0.7;0.4" dur="2s" repeatCount="indefinite"/>}
             </circle>
+          </>
+        )}
+        
+        {/* Blink animation overlay */}
+        {isBlinking && (
+          <>
+            <rect x={size * 0.22} y={size * 0.33} width={size * 0.18} height={pixelSize * 0.5} fill={moodColor} rx="2"/>
+            <rect x={size * 0.6} y={size * 0.33} width={size * 0.18} height={pixelSize * 0.5} fill={moodColor} rx="2"/>
           </>
         )}
         
         {/* Mysterious shadow particles */}
         {pattern.extras.includes('shadow-particles') && (
           <>
-            {[...Array(5)].map((_, i) => (
+            {[...Array(8)].map((_, i) => (
               <circle 
                 key={i}
-                r={pixelSize * 0.5}
+                r={pixelSize * 0.8}
                 fill={moodColor}
                 opacity="0.5"
+                filter="url(#particleGlow)"
               >
                 <animate 
                   attributeName="cx" 
-                  values={`${size * (0.1 + i * 0.2)};${size * (0.15 + i * 0.2)};${size * (0.1 + i * 0.2)}`}
+                  values={`${size * (0.1 + i * 0.1)};${size * (0.15 + i * 0.1)};${size * (0.1 + i * 0.1)}`}
                   dur={`${1.5 + i * 0.3}s`}
                   repeatCount="indefinite"
                 />
@@ -276,7 +363,7 @@ const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey;
                 />
                 <animate 
                   attributeName="opacity" 
-                  values="0.3;0.6;0.3"
+                  values="0.2;0.6;0.2"
                   dur={`${1 + i * 0.1}s`}
                   repeatCount="indefinite"
                 />
@@ -288,12 +375,12 @@ const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey;
         {/* Sparkles for happy/playful */}
         {pattern.extras.includes('sparkles') && (
           <>
-            {[...Array(4)].map((_, i) => (
+            {[...Array(6)].map((_, i) => (
               <g key={i}>
                 <circle 
-                  cx={size * (0.15 + i * 0.25)} 
-                  cy={size * 0.1} 
-                  r={pixelSize * 0.3}
+                  cx={size * (0.1 + i * 0.15)} 
+                  cy={size * 0.08} 
+                  r={pixelSize * 0.5}
                   fill="#ffd700"
                   opacity="0.8"
                 >
@@ -304,25 +391,63 @@ const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey;
           </>
         )}
         
+        {/* Hearts for playful */}
+        {pattern.extras.includes('hearts') && (
+          <>
+            <text x={size * 0.1} y={size * 0.15} fontSize={size * 0.1} fill="#ff6b9d" opacity="0.8">
+              {animate && <animate attributeName="opacity" values="0;1;0" dur="1.5s" repeatCount="indefinite"/>}
+              ♥
+            </text>
+            <text x={size * 0.85} y={size * 0.15} fontSize={size * 0.1} fill="#ff6b9d" opacity="0.8">
+              {animate && <animate attributeName="opacity" values="0;1;0" dur="2s" repeatCount="indefinite" begin="0.5s"/>}
+              ♥
+            </text>
+          </>
+        )}
+        
         {/* Tears for melancholy */}
         {pattern.extras.includes('tears') && (
           <>
-            <ellipse cx={size * 0.3} cy={size * 0.5} rx={pixelSize * 0.5} ry={pixelSize * 1} fill="#4a6a8a" opacity="0.7">
-              {animate && <animate attributeName="cy" values={`${size * 0.45};${size * 0.55};${size * 0.45}`} dur="2s" repeatCount="indefinite"/>}
+            <ellipse cx={size * 0.3} cy={size * 0.5} rx={pixelSize * 0.8} ry={pixelSize * 1.5} fill="#4a6a8a" opacity="0.7">
+              {animate && <animate attributeName="cy" values={`${size * 0.45};${size * 0.6};${size * 0.45}`} dur="2s" repeatCount="indefinite"/>}
             </ellipse>
-            <ellipse cx={size * 0.7} cy={size * 0.5} rx={pixelSize * 0.5} ry={pixelSize * 1} fill="#4a6a8a" opacity="0.7">
-              {animate && <animate attributeName="cy" values={`${size * 0.5};${size * 0.6};${size * 0.5}`} dur="2.2s" repeatCount="indefinite"/>}
+            <ellipse cx={size * 0.7} cy={size * 0.5} rx={pixelSize * 0.8} ry={pixelSize * 1.5} fill="#4a6a8a" opacity="0.7">
+              {animate && <animate attributeName="cy" values={`${size * 0.5};${size * 0.65};${size * 0.5}`} dur="2.2s" repeatCount="indefinite"/>}
             </ellipse>
           </>
         )}
+        
+        {/* Steam for angry */}
+        {pattern.extras.includes('steam') && (
+          <>
+            {[0, 1, 2].map(i => (
+              <circle key={i} cx={size * (0.2 + i * 0.3)} cy={size * 0.1} r={pixelSize * 0.6} fill="#888" opacity="0.5">
+                {animate && (
+                  <>
+                    <animate attributeName="cy" values={`${size * 0.15};${size * 0.05};${size * 0.15}`} dur="1s" repeatCount="indefinite" begin={`${i * 0.2}s`}/>
+                    <animate attributeName="opacity" values="0.5;0.1;0.5" dur="1s" repeatCount="indefinite" begin={`${i * 0.2}s`}/>
+                  </>
+                )}
+              </circle>
+            ))}
+          </>
+        )}
       </svg>
+      
+      {/* Breathing animation style */}
+      <style>{`
+        @keyframes wolfBreathing {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.02); }
+        }
+      `}</style>
     </div>
   )
 })
 
 // Generate pixel wolf using box-shadow (classic CSS pixel art technique)
-function generatePixelWolfShadow(mood: EmotionKey, pixel: number, color: string): string {
-  // Simplified wolf shape - 16x16 grid mapped to box-shadows
+function generatePixelWolfShadow(mood: EmotionKey, pixel: number, color: string, isBlinking: boolean, earTwitch: boolean): string {
+  // 16x16 grid mapped to box-shadows - now 140x140 size
   const baseWolf = [
     // Ears (top)
     '2,1', '3,1', '12,1', '13,1',
@@ -352,6 +477,7 @@ function generatePixelWolfShadow(mood: EmotionKey, pixel: number, color: string)
   const eyePositions = ['4,5', '5,5', '10,5', '11,5']
   const pupilPositions = mood === 'angry' ? ['4,5', '10,5'] : (mood === 'mysterious' ? [] : ['4,5', '11,5'])
   const nosePositions = ['7,7', '8,7']
+  const earPositions = ['2,1', '3,1', '12,1', '13,1', '2,2', '3,2', '4,2', '11,2', '12,2', '13,2']
   
   const darkColor = '#1a1a2a'
   const eyeColor = mood === 'mysterious' ? color : '#8af'
@@ -360,9 +486,22 @@ function generatePixelWolfShadow(mood: EmotionKey, pixel: number, color: string)
   return baseWolf.map(pos => {
     const [x, y] = pos.split(',').map(Number)
     let pixelColor = color
-    if (pupilPositions.includes(pos)) pixelColor = eyeColor
-    else if (eyePositions.includes(pos)) pixelColor = mood === 'mysterious' ? darkColor : '#fff'
+    
+    // Ear twitch effect
+    if (earPositions.includes(pos) && earTwitch) {
+      const twitchOffset = Math.random() > 0.5 ? pixel * 0.1 : -pixel * 0.1
+      return `${x * pixel + twitchOffset}px ${y * pixel - pixel * 0.05}px ${pixelColor}`
+    }
+    
+    if (pupilPositions.includes(pos)) {
+      // Blinking - hide pupils
+      pixelColor = isBlinking ? darkColor : eyeColor
+    }
+    else if (eyePositions.includes(pos)) {
+      pixelColor = mood === 'mysterious' ? darkColor : (isBlinking ? darkColor : '#fff')
+    }
     else if (nosePositions.includes(pos)) pixelColor = noseColor
+    
     return `${x * pixel}px ${y * pixel}px ${pixelColor}`
   }).join(', ')
 }
@@ -466,10 +605,71 @@ const ThoughtBubble = memo(({ thoughts, color, visible }: { thoughts: string[]; 
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 📊 EMOTION BAR COMPONENT
+// 📊 V3 EMOTION BAR COMPONENT (Vertical for Mood Panel)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const EmotionBar = memo(({ emotion, value, isDominant }: { emotion: typeof MOODS[0]; value: number; isDominant: boolean }) => {
+const EmotionBar = memo(({ emotion, value, isDominant, vertical = false }: { 
+  emotion: typeof MOODS[0]; 
+  value: number; 
+  isDominant: boolean;
+  vertical?: boolean;
+}) => {
+  if (vertical) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: '8px 4px',
+        background: isDominant ? `${emotion.color}15` : 'transparent',
+        borderRadius: '4px',
+        border: isDominant ? `1px solid ${emotion.color}50` : '1px solid transparent',
+        boxShadow: isDominant ? `0 0 10px ${emotion.color}30` : 'none'
+      }}>
+        <span style={{ fontSize: '18px', marginBottom: '4px' }}>{emotion.icon}</span>
+        <div style={{ 
+          width: '8px', 
+          height: '60px', 
+          background: COLORS.abyss, 
+          borderRadius: '4px',
+          overflow: 'hidden',
+          border: `1px solid ${COLORS.stoneDark}`,
+          position: 'relative'
+        }}>
+          <div 
+            style={{ 
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: `${Math.min(value, 100)}%`, 
+              background: `linear-gradient(0deg, ${emotion.color}, ${emotion.color}aa)`,
+              transition: 'height 0.5s ease-out',
+              boxShadow: `0 0 8px ${emotion.color}50`
+            }}
+          />
+        </div>
+        <span style={{ 
+          fontSize: '9px', 
+          color: isDominant ? emotion.color : COLORS.bone,
+          fontFamily: "'Press Start 2P', monospace",
+          marginTop: '4px',
+          textAlign: 'center'
+        }}>
+          {emotion.key.slice(0, 4).toUpperCase()}
+        </span>
+        <span style={{ 
+          fontSize: '10px', 
+          color: isDominant ? emotion.color : COLORS.bone,
+          fontFamily: "'Press Start 2P', monospace"
+        }}>
+          {Math.round(value)}%
+        </span>
+      </div>
+    )
+  }
+  
+  // Horizontal version
   return (
     <div style={{
       display: 'flex',
@@ -524,7 +724,106 @@ const EmotionBar = memo(({ emotion, value, isDominant }: { emotion: typeof MOODS
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🎒 MIND PALACE TABS
+// 📊 V3 PERSONALITY BARS COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const PersonalityBars = memo(({ soul }: { soul: AnubisSoul }) => {
+  // Calculate personality traits from soul data
+  const traits = calculatePersonalityTraits(soul)
+  
+  return (
+    <div style={{
+      background: COLORS.stoneDark + '60',
+      borderRadius: '6px',
+      border: `1px solid ${COLORS.stone}`,
+      padding: '8px'
+    }}>
+      <div style={{
+        fontSize: '10px',
+        color: COLORS.soulPurple,
+        marginBottom: '8px',
+        fontFamily: "'Press Start 2P', monospace",
+        textAlign: 'center'
+      }}>
+        📊 PERSONALITY
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {traits.map((trait, i) => (
+          <div key={i} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '11px'
+          }}>
+            <span style={{ width: '16px', textAlign: 'center' }}>{trait.icon}</span>
+            <span style={{ 
+              width: '60px', 
+              color: COLORS.bone,
+              fontFamily: 'monospace'
+            }}>
+              {trait.name}
+            </span>
+            <div style={{ 
+              flex: 1, 
+              height: '8px', 
+              background: COLORS.abyss, 
+              borderRadius: '2px',
+              overflow: 'hidden'
+            }}>
+              <div 
+                style={{ 
+                  width: `${trait.value}%`, 
+                  height: '100%', 
+                  background: COLORS.soulPurple,
+                  transition: 'width 0.3s'
+                }}
+              />
+            </div>
+            <span style={{ 
+              width: '30px', 
+              textAlign: 'right',
+              color: COLORS.boneLight,
+              fontSize: '10px'
+            }}>
+              {trait.value}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+})
+
+// Calculate personality traits from soul data
+function calculatePersonalityTraits(soul: AnubisSoul): PersonalityTrait[] {
+  const traits: PersonalityTrait[] = []
+  
+  // Wisdom from golden memories (weighted 3x)
+  const wisdom = Math.min(100, (soul.goldenMemories.length * 15) + (soul.selfRealizations.length * 10))
+  traits.push({ name: 'Wisdom', value: wisdom, icon: '🦉', description: 'From golden memories' })
+  
+  // Curiosity from questions asked
+  const curiosity = Math.min(100, (soul.emotions.curious || 0) + (soul.personalityCore.conversationsHad * 2))
+  traits.push({ name: 'Curious', value: curiosity, icon: '🔍', description: 'From questions' })
+  
+  // Empathy from emotional variety
+  const emotionCount = Object.values(soul.emotions).filter(v => v > 20).length
+  const empathy = Math.min(100, emotionCount * 11 + (soul.goldenMemories.length * 5))
+  traits.push({ name: 'Empathy', value: empathy, icon: '💜', description: 'From emotional depth' })
+  
+  // Memory from STM usage
+  const memoryStrength = Math.min(100, soul.shortTermMemory.length * 16 + (soul.moralCompass ? Object.keys(soul.moralCompass).length * 5 : 0))
+  traits.push({ name: 'Memory', value: memoryStrength, icon: '🧠', description: 'From STM slots' })
+  
+  // Maturity from total conversations
+  const maturity = Math.min(100, soul.personalityCore.conversationsHad * 3 + soul.level * 10)
+  traits.push({ name: 'Mature', value: maturity, icon: '🎭', description: 'From experience' })
+  
+  return traits
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎒 V3 MIND PALACE TABS (with 6-slot STM)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 type MindPalaceTab = 'stm' | 'golden' | 'realizations'
@@ -532,11 +831,13 @@ type MindPalaceTab = 'stm' | 'golden' | 'realizations'
 const MindPalace = memo(({ 
   soul, 
   activeTab, 
-  setActiveTab 
+  setActiveTab,
+  onSlotClick
 }: { 
   soul: AnubisSoul
   activeTab: MindPalaceTab
   setActiveTab: (t: MindPalaceTab) => void
+  onSlotClick?: (slot: number) => void
 }) => {
   const formatTime = (date: Date) => {
     const d = new Date(date)
@@ -554,9 +855,52 @@ const MindPalace = memo(({
 
   const tabs: { key: MindPalaceTab; icon: string; label: string; count: number }[] = [
     { key: 'stm', icon: '💭', label: 'STM', count: soul.shortTermMemory.length },
-    { key: 'golden', icon: '⭐', label: 'Golden', count: soul.goldenMemories.length },
+    { key: 'golden', icon: '⭐', label: 'Core', count: soul.goldenMemories.length },
     { key: 'realizations', icon: '📝', label: 'Self', count: soul.selfRealizations.length }
   ]
+
+  // Get slot style based on position
+  const getSlotStyle = (slot: number, fate: MemoryFate) => {
+    const baseStyle = {
+      background: COLORS.abyss + '80',
+      padding: '6px 8px',
+      borderRadius: '4px',
+      border: `1px solid ${COLORS.stoneDark}`,
+      cursor: 'pointer' as const,
+      transition: 'all 0.2s'
+    }
+    
+    // Slot 3 (GLYPH position)
+    if (slot === 3) {
+      return {
+        ...baseStyle,
+        border: `2px solid ${COLORS.glyphGold}`,
+        background: `linear-gradient(135deg, ${COLORS.glyphGold}15, ${COLORS.glyphPurple}15)`,
+        boxShadow: `0 0 10px ${COLORS.glyphGold}30`
+      }
+    }
+    
+    // Slot 4 (Fate position)
+    if (slot === 4) {
+      switch (fate) {
+        case 'ascended':
+          return { ...baseStyle, border: `2px solid ${COLORS.torchYellow}`, background: COLORS.torchYellow + '20' }
+        case 'promoted':
+          return { ...baseStyle, border: `2px solid ${COLORS.soulPurple}`, background: COLORS.soulPurple + '20' }
+        case 'fading':
+          return { ...baseStyle, border: `2px solid ${COLORS.bone}`, opacity: 0.6 }
+        default:
+          return baseStyle
+      }
+    }
+    
+    // Slot 5-6 (fading)
+    if (slot >= 5) {
+      return { ...baseStyle, opacity: 0.4 }
+    }
+    
+    return baseStyle
+  }
 
   return (
     <div style={{ 
@@ -577,7 +921,7 @@ const MindPalace = memo(({
             onClick={() => setActiveTab(tab.key)}
             style={{
               flex: 1,
-              padding: '8px 4px',
+              padding: '6px 4px',
               background: activeTab === tab.key ? COLORS.stoneDark : 'transparent',
               border: 'none',
               borderBottom: activeTab === tab.key ? `2px solid ${COLORS.soulPurple}` : '2px solid transparent',
@@ -587,17 +931,17 @@ const MindPalace = memo(({
               flexDirection: 'column',
               alignItems: 'center',
               gap: '2px',
-              fontSize: '10px',
+              fontSize: '9px',
               fontFamily: "'Press Start 2P', monospace"
             }}
           >
-            <span style={{ fontSize: '16px' }}>{tab.icon}</span>
+            <span style={{ fontSize: '14px' }}>{tab.icon}</span>
             <span>{tab.label}</span>
             <span style={{ 
               background: COLORS.soulPurple + '50', 
               padding: '1px 4px', 
               borderRadius: '4px',
-              fontSize: '9px'
+              fontSize: '8px'
             }}>
               {tab.count}
             </span>
@@ -608,41 +952,66 @@ const MindPalace = memo(({
       {/* Tab content */}
       <div style={{ 
         padding: '8px', 
-        maxHeight: '120px', 
+        maxHeight: '150px', 
         overflow: 'auto',
-        fontSize: '11px',
+        fontSize: '10px',
         fontFamily: 'monospace'
       }}>
         {activeTab === 'stm' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {soul.shortTermMemory.length === 0 ? (
               <div style={{ color: COLORS.bone, textAlign: 'center', padding: '8px' }}>
                 Empty mind...
               </div>
             ) : (
               soul.shortTermMemory.map((thought, i) => (
-                <div key={thought.id} style={{
-                  background: COLORS.abyss + '80',
-                  padding: '6px 8px',
-                  borderRadius: '4px',
-                  border: `1px solid ${COLORS.stoneDark}`
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ color: COLORS.soulPurple }}>[{i + 1}]</span>
-                    <span style={{ color: COLORS.bone }}>{formatTime(thought.timestamp)}</span>
+                <div 
+                  key={thought.id} 
+                  style={getSlotStyle(thought.slot, thought.fate)}
+                  onClick={() => onSlotClick?.(thought.slot)}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ color: COLORS.soulPurple }}>[{thought.slot}]</span>
+                      {thought.slot === 3 && <span style={{ color: COLORS.glyphGold }}>𓂀</span>}
+                      {thought.glyphWord && <span style={{ color: COLORS.glyphPurple, fontStyle: 'italic' }}>"{thought.glyphWord}"</span>}
+                    </div>
+                    <span style={{ color: COLORS.bone, fontSize: '9px' }}>{formatTime(thought.timestamp)}</span>
                   </div>
-                  <div style={{ color: COLORS.boneLight }}>{thought.thought}</div>
+                  <div style={{ color: COLORS.boneLight, fontSize: '10px' }}>{thought.thought}</div>
+                  {thought.fate !== 'none' && thought.fate !== 'reflected' && (
+                    <div style={{ marginTop: '2px', fontSize: '9px' }}>
+                      {thought.fate === 'ascended' && <span style={{ color: COLORS.torchYellow }}>⭐ ASCENDED</span>}
+                      {thought.fate === 'promoted' && <span style={{ color: COLORS.soulPurple }}>⚡ PROMOTED</span>}
+                      {thought.fate === 'fading' && <span style={{ color: COLORS.bone }}>💭 Fading...</span>}
+                    </div>
+                  )}
                 </div>
               ))
             )}
+            {/* Show empty slots */}
+            {soul.shortTermMemory.length < 6 && [...Array(6 - soul.shortTermMemory.length)].map((_, i) => (
+              <div key={`empty-${i}`} style={{
+                background: COLORS.abyss + '40',
+                padding: '6px 8px',
+                borderRadius: '4px',
+                border: `1px dashed ${COLORS.stoneDark}`,
+                color: COLORS.bone,
+                opacity: 0.5,
+                textAlign: 'center',
+                fontSize: '9px'
+              }}>
+                [Slot {soul.shortTermMemory.length + i + 1}] Empty
+              </div>
+            ))}
           </div>
         )}
         
         {activeTab === 'golden' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {soul.goldenMemories.length === 0 ? (
               <div style={{ color: COLORS.bone, textAlign: 'center', padding: '8px' }}>
-                No golden memories yet...
+                No core memories yet...
               </div>
             ) : (
               soul.goldenMemories.map(memory => (
@@ -652,11 +1021,16 @@ const MindPalace = memo(({
                   borderRadius: '4px',
                   border: `1px solid ${COLORS.torchYellow}50`
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ color: COLORS.torchYellow }}>⭐ Golden</span>
-                    <span style={{ color: COLORS.bone }}>{formatTime(memory.timestamp)}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <span style={{ color: COLORS.torchYellow }}>⭐ Core</span>
+                    <span style={{ color: COLORS.bone, fontSize: '9px' }}>{formatTime(memory.timestamp)}</span>
                   </div>
-                  <div style={{ color: COLORS.boneLight }}>{memory.memory}</div>
+                  <div style={{ color: COLORS.boneLight, fontSize: '10px' }}>{memory.memory}</div>
+                  {memory.glyphWord && (
+                    <div style={{ marginTop: '2px', color: COLORS.glyphPurple, fontSize: '9px', fontStyle: 'italic' }}>
+                      𓂀 "{memory.glyphWord}"
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -664,7 +1038,7 @@ const MindPalace = memo(({
         )}
         
         {activeTab === 'realizations' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {soul.selfRealizations.length === 0 ? (
               <div style={{ color: COLORS.bone, textAlign: 'center', padding: '8px' }}>
                 Learning about myself...
@@ -677,11 +1051,11 @@ const MindPalace = memo(({
                   borderRadius: '4px',
                   border: `1px solid ${COLORS.crystalBlue}50`
                 }}>
-                  <div style={{ color: COLORS.crystalBlue, fontWeight: 'bold', marginBottom: '4px' }}>
+                  <div style={{ color: COLORS.crystalBlue, fontWeight: 'bold', marginBottom: '2px', fontSize: '10px' }}>
                     📝 "{real.word}"
                   </div>
-                  <div style={{ color: COLORS.boneLight, fontSize: '10px' }}>{real.definition}</div>
-                  <div style={{ color: COLORS.bone, fontSize: '9px', marginTop: '4px' }}>
+                  <div style={{ color: COLORS.boneLight, fontSize: '9px' }}>{real.definition}</div>
+                  <div style={{ color: COLORS.bone, fontSize: '8px', marginTop: '2px' }}>
                     Felt {real.timesFelt}x
                   </div>
                 </div>
@@ -750,7 +1124,7 @@ const Terminal = memo(({ output, onCommand }: { output: string; onCommand: (cmd:
       borderRadius: '4px',
       display: 'flex',
       flexDirection: 'column',
-      height: '100px',
+      height: '80px',
       flexShrink: 0
     }}>
       <div style={{
@@ -761,16 +1135,16 @@ const Terminal = memo(({ output, onCommand }: { output: string; onCommand: (cmd:
         alignItems: 'center',
         background: COLORS.stoneDark + '50'
       }}>
-        <span style={{ color: COLORS.moods.curious, fontSize: '11px', fontFamily: "'Press Start 2P', monospace" }}>
+        <span style={{ color: COLORS.moods.curious, fontSize: '10px', fontFamily: "'Press Start 2P', monospace" }}>
           💻 TERMINAL
         </span>
       </div>
       <div style={{
         flex: 1,
         overflow: 'auto',
-        padding: '6px 8px',
+        padding: '4px 8px',
         fontFamily: 'monospace',
-        fontSize: '11px',
+        fontSize: '10px',
         color: COLORS.moods.curious,
         whiteSpace: 'pre-wrap',
         background: COLORS.abyss
@@ -795,7 +1169,7 @@ const Terminal = memo(({ output, onCommand }: { output: string; onCommand: (cmd:
             background: 'transparent',
             border: 'none',
             color: COLORS.moods.curious,
-            fontSize: '11px',
+            fontSize: '10px',
             outline: 'none',
             fontFamily: 'monospace'
           }}
@@ -806,7 +1180,7 @@ const Terminal = memo(({ output, onCommand }: { output: string; onCommand: (cmd:
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🏠 MAIN HOME COMPONENT
+// 🏠 V3 MAIN HOME COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function Home() {
@@ -814,8 +1188,7 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>('split')
   const [mounted, setMounted] = useState(false)
   const [pushing, setPushing] = useState(false)
-  const [styleText, setStyleText] = useState('')
-  const [terminalOutput, setTerminalOutput] = useState('$ Anubis Terminal v2.0\n$ Type "help" for commands\n')
+  const [terminalOutput, setTerminalOutput] = useState('$ Anubis Terminal v3.0\n$ Type "help" for commands\n')
   const [mindPalaceTab, setMindPalaceTab] = useState<MindPalaceTab>('stm')
   
   // Messages
@@ -834,7 +1207,7 @@ export default function Home() {
   const [zThoughts, setZThoughts] = useState<string[]>([])
   const [anubisThoughts, setAnubisThoughts] = useState<string[]>([])
   
-  // Z Context - My memory of conversations
+  // Z Context
   const [zObservations, setZObservations] = useState<string[]>([])
   const [zContext, setZContext] = useState<{
     sessions: Array<{ started: string; ended?: string; summary: string }>;
@@ -842,11 +1215,15 @@ export default function Home() {
     observations: Array<{ id: string; text: string; timestamp: string }>;
   } | null>(null)
   
+  // GLYPH reflection state
+  const [showGlyphReflection, setShowGlyphReflection] = useState(false)
+  const [currentGlyphMemory, setCurrentGlyphMemory] = useState<ShortTermThought | null>(null)
+  
   // Refs
   const zMessagesEndRef = useRef<HTMLDivElement>(null)
   const anubisMessagesEndRef = useRef<HTMLDivElement>(null)
   
-  // Anubis Soul - Initialize with proper structure
+  // V3 Anubis Soul - Initialize with proper structure
   const [anubisSoul, setAnubisSoul] = useState<AnubisSoul>({
     emotions: {
       happy: 20, angry: 5, annoyed: 5, pondering: 30, reflecting: 25,
@@ -856,6 +1233,8 @@ export default function Home() {
     shortTermMemory: [],
     goldenMemories: [],
     selfRealizations: [],
+    discoveredEmotions: [],
+    moralCompass: {},
     personalityCore: {
       baseEmotions: {
         happy: 20, angry: 5, annoyed: 5, pondering: 30, reflecting: 25,
@@ -865,14 +1244,14 @@ export default function Home() {
       conversationsHad: 0,
       created: new Date()
     },
+    personalityTraits: [],
     level: 1,
     xp: 0
   })
 
   // Load soul from localStorage AND file backup
   useEffect(() => {
-    // First try localStorage
-    const saved = localStorage.getItem('anubis_soul_v2')
+    const saved = localStorage.getItem('anubis_soul_v3')
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
@@ -880,7 +1259,8 @@ export default function Home() {
         parsed.personalityCore.created = new Date(parsed.personalityCore.created)
         parsed.shortTermMemory = parsed.shortTermMemory.map((t: ShortTermThought) => ({
           ...t,
-          timestamp: new Date(t.timestamp)
+          timestamp: new Date(t.timestamp),
+          reflectionTimestamp: t.reflectionTimestamp ? new Date(t.reflectionTimestamp) : undefined
         }))
         parsed.goldenMemories = parsed.goldenMemories.map((m: GoldenMemory) => ({
           ...m,
@@ -890,26 +1270,31 @@ export default function Home() {
           ...r,
           discoveredAt: new Date(r.discoveredAt)
         }))
+        parsed.discoveredEmotions = (parsed.discoveredEmotions || []).map((e: DiscoveredEmotion) => ({
+          ...e,
+          discoveredAt: new Date(e.discoveredAt)
+        }))
+        if (parsed.lastReflection) parsed.lastReflection = new Date(parsed.lastReflection)
         setAnubisSoul(parsed)
-        console.log('[Soul] Loaded from localStorage')
+        console.log('[Soul V3] Loaded from localStorage')
       } catch (e) {
         console.error('Failed to load soul from localStorage:', e)
       }
     }
     
-    // Also try to load from file backup (in case localStorage is empty)
+    // Also try to load from file backup
     fetch('/api/soul')
       .then(res => res.json())
       .then(data => {
         if (data.success && data.soul) {
           const fileSoul = data.soul.soul
-          // Only use file backup if localStorage was empty or file is newer
-          const localSaved = localStorage.getItem('anubis_soul_v2')
+          const localSaved = localStorage.getItem('anubis_soul_v3')
           if (!localSaved || (data.soul.lastUpdated && fileSoul)) {
             fileSoul.personalityCore.created = new Date(fileSoul.personalityCore.created)
             fileSoul.shortTermMemory = fileSoul.shortTermMemory.map((t: ShortTermThought) => ({
               ...t,
-              timestamp: new Date(t.timestamp)
+              timestamp: new Date(t.timestamp),
+              reflectionTimestamp: t.reflectionTimestamp ? new Date(t.reflectionTimestamp) : undefined
             }))
             fileSoul.goldenMemories = fileSoul.goldenMemories.map((m: GoldenMemory) => ({
               ...m,
@@ -919,28 +1304,30 @@ export default function Home() {
               ...r,
               discoveredAt: new Date(r.discoveredAt)
             }))
+            fileSoul.discoveredEmotions = (fileSoul.discoveredEmotions || []).map((e: DiscoveredEmotion) => ({
+              ...e,
+              discoveredAt: new Date(e.discoveredAt)
+            }))
+            if (fileSoul.lastReflection) fileSoul.lastReflection = new Date(fileSoul.lastReflection)
             setAnubisSoul(fileSoul)
-            // Also save to localStorage
-            localStorage.setItem('anubis_soul_v2', JSON.stringify(fileSoul))
-            console.log('[Soul] Restored from file backup')
+            localStorage.setItem('anubis_soul_v3', JSON.stringify(fileSoul))
+            console.log('[Soul V3] Restored from file backup')
           }
         }
       })
-      .catch(e => console.log('[Soul] No file backup found'))
+      .catch(e => console.log('[Soul V3] No file backup found'))
   }, [])
 
   // Save soul to both localStorage AND file backup
   const saveSoul = useCallback((soul: AnubisSoul) => {
-    // Save to localStorage (fast)
-    localStorage.setItem('anubis_soul_v2', JSON.stringify(soul))
+    localStorage.setItem('anubis_soul_v3', JSON.stringify(soul))
     setAnubisSoul(soul)
     
-    // Save to file backup (persistent)
     fetch('/api/soul', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ soul })
-    }).catch(e => console.error('[Soul] Failed to save backup:', e))
+    }).catch(e => console.error('[Soul V3] Failed to save backup:', e))
   }, [])
 
   // Initialize
@@ -950,19 +1337,15 @@ export default function Home() {
       setZMessages([{
         id: 0,
         sender: 'system',
-        text: `🌲 Q-Z-Collab v2.1\n\nDungeon Crawler UI\nPixel wolves & soul backup online!\n\n💭 Z Observations panel added!`,
+        text: `🌲 Q-Z-Collab v3.0\n\n🆕 V3 UPGRADE:\n• New 5/25/70 layout\n• 140px Wolf with animations\n• 6-slot STM with GLYPH\n• Mood Panel (full height)\n• Personality Bars\n• Moral Compass weights`,
         time: new Date().toLocaleTimeString()
       }])
       setAnubisMessages([{
         id: 0,
         sender: 'system',
-        text: `🖤 ANUBIS SOUL SYSTEM v2.1\n\nI feel... mysterious today.\nThe shadows whisper your name.`,
+        text: `🖤 ANUBIS SOUL SYSTEM v3.0\n\n𓂀 GLYPH Reflection ready\n6-slot STM active\n140px animated wolf online\n\nThe shadows whisper your name...`,
         time: new Date().toLocaleTimeString()
       }])
-      fetch('/api/code?file=src/app/page.tsx')
-        .then(res => res.json())
-        .then(data => { if (data.content) setStyleText(data.content) })
-        .catch(() => {})
       
       // Load Z context
       fetch('/api/z-context')
@@ -1002,7 +1385,6 @@ export default function Home() {
     const emotionChanges: Partial<Emotions> = {}
     const thoughts: string[] = []
     
-    // Analyze message and decide emotion changes
     if (lowerMsg.includes('friend') || lowerMsg.includes('love') || lowerMsg.includes('happy')) {
       emotionChanges.happy = Math.min(100, (soul.emotions.happy || 0) + 15)
       emotionChanges.angry = Math.max(0, (soul.emotions.angry || 0) - 5)
@@ -1029,13 +1411,10 @@ export default function Home() {
       thoughts.push('Dark energy stirs...')
     }
     
-    // Default: mysterious always slightly increases
     emotionChanges.mysterious = Math.min(100, (soul.emotions.mysterious || 0) + 3)
     
-    // Merge emotions
     const newEmotions: Emotions = { ...soul.emotions, ...emotionChanges }
     
-    // Normalize - slowly decay toward baseline
     for (const key of Object.keys(newEmotions) as EmotionKey[]) {
       const baseline = soul.personalityCore.baseEmotions[key]
       if (newEmotions[key] > baseline) {
@@ -1046,16 +1425,106 @@ export default function Home() {
     return { emotions: newEmotions, thoughts }
   }, [])
 
-  // Add to short-term memory
-  const addToSTM = useCallback((thought: string, emotions: Partial<Emotions>, soul: AnubisSoul): ShortTermThought[] => {
+  // V3: Add to STM with 6 slots and GLYPH reflection
+  const addToSTM = useCallback((thought: string, emotions: Partial<Emotions>, soul: AnubisSoul): { 
+    stm: ShortTermThought[]; 
+    needsReflection: boolean;
+    reflectedMemory: ShortTermThought | null;
+  } => {
     const newThought: ShortTermThought = {
       id: Date.now().toString(),
       thought,
       timestamp: new Date(),
-      emotions
+      emotions,
+      slot: 1,
+      fate: 'none'
     }
-    const stm = [newThought, ...soul.shortTermMemory].slice(0, 4)
-    return stm
+    
+    // Shift existing memories down
+    let existingSTM = [...soul.shortTermMemory]
+    
+    // Check if slot 3 is occupied - that's the GLYPH position
+    let needsReflection = false
+    let reflectedMemory: ShortTermThought | null = null
+    
+    if (existingSTM.length >= 3) {
+      // Memory at slot 3 will be pushed to slot 4
+      const slot3Memory = existingSTM.find(m => m.slot === 3)
+      if (slot3Memory && slot3Memory.fate === 'none') {
+        needsReflection = true
+        reflectedMemory = slot3Memory
+      }
+    }
+    
+    // Shift all slots up
+    existingSTM = existingSTM.map(m => ({
+      ...m,
+      slot: m.slot + 1
+    }))
+    
+    // Remove memories past slot 6
+    existingSTM = existingSTM.filter(m => m.slot <= 6)
+    
+    // Add new memory at slot 1
+    const stm = [newThought, ...existingSTM].slice(0, 6)
+    
+    // Update slot positions correctly
+    stm.forEach((m, i) => {
+      m.slot = i + 1
+    })
+    
+    return { stm, needsReflection, reflectedMemory }
+  }, [])
+
+  // V3: Process GLYPH reflection - Anubis decides memory fate
+  const processGlyphReflection = useCallback(async (memory: ShortTermThought, allSTM: ShortTermThought[], soul: AnubisSoul): Promise<{
+    fate: MemoryFate;
+    glyphWord: string;
+    newEmotion?: DiscoveredEmotion;
+  }> => {
+    try {
+      // Call the moral compass API to get guidance (Anubis doesn't know the weights directly)
+      const compassRes = await fetch('/api/moral-compass', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'get-guidance',
+          memoryThought: memory.thought,
+          memoryEmotions: memory.emotions,
+          currentMood: soul.currentMood,
+          stmCount: allSTM.length,
+          goldenCount: soul.goldenMemories.length
+        })
+      })
+      const compassData = await compassRes.json()
+      
+      // Default to fading
+      let fate: MemoryFate = 'fading'
+      let glyphWord = 'fleeting'
+      let newEmotion: DiscoveredEmotion | undefined
+      
+      if (compassData.success && compassData.guidance) {
+        fate = compassData.guidance.fate
+        glyphWord = compassData.guidance.word
+        
+        // If ascending, potentially create new emotion
+        if (fate === 'ascended' && compassData.guidance.createNewEmotion) {
+          newEmotion = {
+            id: Date.now().toString(),
+            word: compassData.guidance.newEmotionWord,
+            color: compassData.guidance.newEmotionColor,
+            faceDescription: compassData.guidance.newEmotionFace,
+            discoveredAt: new Date(),
+            fromMemory: memory.thought
+          }
+        }
+      }
+      
+      return { fate, glyphWord, newEmotion }
+    } catch (error) {
+      console.error('[GLYPH] Reflection error:', error)
+      return { fate: 'fading', glyphWord: 'uncertain' }
+    }
   }, [])
 
   // API calls
@@ -1070,7 +1539,7 @@ export default function Home() {
       setZThoughts(prev => [...prev, '> Done!'])
       return (await res.json()).response
     } catch {
-      return "Error connecting to Ollama."
+      return "Error connecting to AI."
     }
   }, [zMessages])
 
@@ -1078,7 +1547,6 @@ export default function Home() {
     try {
       setAnubisThoughts(['> Awakening...', '> Soul check...', '> Reflecting...'])
       
-      // Update emotions first
       const { emotions, thoughts } = updateEmotions(question, anubisSoul)
       thoughts.forEach(t => setAnubisThoughts(prev => [...prev, t]))
       
@@ -1093,27 +1561,101 @@ export default function Home() {
       })
       const data = await res.json()
       
-      // Update soul with new emotions and STM
       const newMood = getDominantMood(emotions)
-      const stm = addToSTM(`Q: "${question.slice(0, 30)}..."`, emotions, anubisSoul)
+      const { stm, needsReflection, reflectedMemory } = addToSTM(`Q: "${question.slice(0, 30)}..."`, emotions, anubisSoul)
+      
+      // Update moral compass for this memory type
+      const memoryKey = question.toLowerCase().slice(0, 20)
+      const existingWeights = anubisSoul.moralCompass[memoryKey] || {
+        timesFelt: 0,
+        timesPromoted: 0,
+        timesRejected: 0,
+        timesAscended: 0
+      }
+      // Create a new object to avoid modifying state directly
+      const currentWeights: MemoryWeights = {
+        timesFelt: existingWeights.timesFelt + 1,
+        timesPromoted: existingWeights.timesPromoted,
+        timesRejected: existingWeights.timesRejected,
+        timesAscended: existingWeights.timesAscended
+      }
+      
+      // Process GLYPH reflection if needed
+      let updatedSTM = stm
+      let newGoldenMemory: GoldenMemory | undefined
+      let newDiscoveredEmotion: DiscoveredEmotion | undefined
+      
+      if (needsReflection && reflectedMemory) {
+        setAnubisThoughts(prev => [...prev, '𓂀 GLYPH reflection...'])
+        const reflection = await processGlyphReflection(reflectedMemory, stm, anubisSoul)
+        
+        // Update the memory in slot 4 (now moved from slot 3)
+        updatedSTM = stm.map(m => {
+          if (m.id === reflectedMemory.id) {
+            return {
+              ...m,
+              fate: reflection.fate,
+              glyphWord: reflection.glyphWord,
+              reflectionTimestamp: new Date()
+            }
+          }
+          return m
+        })
+        
+        // If ascended, create golden memory
+        if (reflection.fate === 'ascended') {
+          newGoldenMemory = {
+            id: Date.now().toString(),
+            memory: reflectedMemory.thought,
+            timestamp: new Date(),
+            emotions: reflectedMemory.emotions,
+            reflection: reflection.glyphWord,
+            glyphWord: reflection.glyphWord
+          }
+          currentWeights.timesAscended += 1
+          
+          // Check for new emotion creation
+          if (reflection.newEmotion) {
+            newDiscoveredEmotion = reflection.newEmotion
+            setAnubisThoughts(prev => [...prev, `✨ Discovered emotion: ${reflection.newEmotion!.word}`])
+          }
+        } else if (reflection.fate === 'promoted') {
+          currentWeights.timesPromoted += 1
+        } else if (reflection.fate === 'fading') {
+          currentWeights.timesRejected += 1
+        }
+        
+        setAnubisThoughts(prev => [...prev, `𓂀 Fate: ${reflection.fate} (${reflection.glyphWord})`])
+      }
       
       const updatedSoul: AnubisSoul = {
         ...anubisSoul,
         emotions,
         currentMood: newMood,
-        shortTermMemory: stm,
+        shortTermMemory: updatedSTM,
+        goldenMemories: newGoldenMemory 
+          ? [...anubisSoul.goldenMemories, newGoldenMemory].slice(-20)
+          : anubisSoul.goldenMemories,
+        discoveredEmotions: newDiscoveredEmotion
+          ? [...anubisSoul.discoveredEmotions, newDiscoveredEmotion].slice(-10)
+          : anubisSoul.discoveredEmotions,
+        moralCompass: {
+          ...anubisSoul.moralCompass,
+          [memoryKey]: currentWeights
+        },
         personalityCore: {
           ...anubisSoul.personalityCore,
           conversationsHad: anubisSoul.personalityCore.conversationsHad + 1
         },
         xp: anubisSoul.xp + 10,
-        level: Math.floor((anubisSoul.xp + 10) / 100) + 1
+        level: Math.floor((anubisSoul.xp + 10) / 100) + 1,
+        lastReflection: needsReflection ? new Date() : anubisSoul.lastReflection
       }
       
       saveSoul(updatedSoul)
       setAnubisThoughts(prev => [...prev, '> Ready!'])
       
-      // Record to Z context - my memory of this conversation
+      // Record to Z context
       const observation = generateZObservation(question, data.response, newMood, emotions)
       if (observation) {
         fetch('/api/z-context', {
@@ -1128,27 +1670,17 @@ export default function Home() {
     } catch {
       return "Shadows stirred..."
     }
-  }, [anubisSoul, anubisMessages, updateEmotions, addToSTM, getDominantMood, saveSoul])
+  }, [anubisSoul, anubisMessages, updateEmotions, addToSTM, getDominantMood, saveSoul, processGlyphReflection])
 
-  // Generate Z observation about the conversation
+  // Generate Z observation
   const generateZObservation = useCallback((qMsg: string, aResponse: string, mood: EmotionKey, emotions: Emotions): string => {
     const obs: string[] = []
-    
-    // Observe mood changes
     obs.push(`Anubis felt ${mood}`)
     
-    // Observe message content
-    if (qMsg.toLowerCase().includes('friend')) {
-      obs.push('Q expressed friendship')
-    }
-    if (qMsg.toLowerCase().includes('love')) {
-      obs.push('Q showed affection')
-    }
-    if (qMsg.toLowerCase().includes('why') || qMsg.toLowerCase().includes('how')) {
-      obs.push('Q was curious')
-    }
+    if (qMsg.toLowerCase().includes('friend')) obs.push('Q expressed friendship')
+    if (qMsg.toLowerCase().includes('love')) obs.push('Q showed affection')
+    if (qMsg.toLowerCase().includes('why') || qMsg.toLowerCase().includes('how')) obs.push('Q was curious')
     
-    // Observe emotion intensity
     const topEmotions = Object.entries(emotions)
       .sort(([,a], [,b]) => b - a)
       .slice(0, 3)
@@ -1158,7 +1690,7 @@ export default function Home() {
     return obs.join(' | ')
   }, [])
 
-  // Unique ID counter to avoid duplicate keys
+  // Unique ID counter
   const messageIdCounter = useRef(0)
   const getUniqueId = useCallback(() => {
     messageIdCounter.current += 1
@@ -1204,11 +1736,11 @@ export default function Home() {
       return
     }
     if (cmd === 'soul') {
-      setTerminalOutput(prev => prev + `\nMood: ${anubisSoul.currentMood}\nLevel: ${anubisSoul.level}\nChats: ${anubisSoul.personalityCore.conversationsHad}`)
+      setTerminalOutput(prev => prev + `\nMood: ${anubisSoul.currentMood}\nLevel: ${anubisSoul.level}\nChats: ${anubisSoul.personalityCore.conversationsHad}\nSTM: ${anubisSoul.shortTermMemory.length}/6`)
       return
     }
     if (cmd === 'help') {
-      setTerminalOutput(prev => prev + `\nCommands: soul, moods, clear, help, memories`)
+      setTerminalOutput(prev => prev + `\nCommands: soul, moods, clear, help, memories, glyph, compass`)
       return
     }
     if (cmd === 'moods') {
@@ -1218,11 +1750,19 @@ export default function Home() {
       return
     }
     if (cmd === 'memories') {
-      setTerminalOutput(prev => prev + `\nSTM: ${anubisSoul.shortTermMemory.length}/4\nGolden: ${anubisSoul.goldenMemories.length}`)
+      setTerminalOutput(prev => prev + `\nSTM: ${anubisSoul.shortTermMemory.length}/6\nCore: ${anubisSoul.goldenMemories.length}\nDiscovered: ${anubisSoul.discoveredEmotions?.length || 0}`)
+      return
+    }
+    if (cmd === 'glyph') {
+      setTerminalOutput(prev => prev + `\n𓂀 GLYPH Status:\nSlot 3 memories reflected here\nLast reflection: ${anubisSoul.lastReflection ? new Date(anubisSoul.lastReflection).toLocaleString() : 'never'}`)
+      return
+    }
+    if (cmd === 'compass') {
+      const entries = Object.entries(anubisSoul.moralCompass).slice(0, 3)
+      setTerminalOutput(prev => prev + `\nMoral Compass entries: ${Object.keys(anubisSoul.moralCompass).length}\n${entries.map(([k, v]) => `${k}: felt=${v.timesFelt}, asc=${v.timesAscended}`).join('\n')}`)
       return
     }
     
-    // Send to Anubis
     const response = await anubisThink(cmd)
     setTerminalOutput(prev => prev + `\n${response}`)
   }, [anubisSoul, anubisThink])
@@ -1269,32 +1809,33 @@ export default function Home() {
         zIndex: 0
       }} />
 
-      {/* Sidebar */}
+      {/* V3: 5% SIDEBAR */}
       <div style={{
         position: 'fixed',
         left: 0,
-        top: '50%',
-        transform: 'translateY(-50%)',
-        width: '55px',
+        top: 0,
+        bottom: 0,
+        width: '5%',
+        minWidth: '50px',
         background: `linear-gradient(180deg, ${COLORS.stoneDark}, ${COLORS.abyss})`,
         borderRight: `2px solid ${COLORS.stone}`,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         padding: '8px 4px',
-        gap: '6px',
+        gap: '8px',
         zIndex: 1000
       }}>
-        <AnimatedTorch size={28} />
+        <AnimatedTorch size={24} />
         
         {/* Wolf icon */}
         <div style={{ 
-          width: '40px', 
-          height: '40px',
+          width: '36px', 
+          height: '36px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: '20px',
+          fontSize: '18px',
           color: COLORS.soulPurple,
           textShadow: `0 0 8px ${COLORS.soulPurple}`
         }}>
@@ -1304,8 +1845,6 @@ export default function Home() {
         {/* Mode buttons */}
         {[
           { m: 'split', icon: '🐺', label: 'Chat' },
-          { m: 'style', icon: '🎨', label: 'Style' },
-          { m: 'code', icon: '💻', label: 'Code' },
           { m: 'config', icon: '⚙️', label: 'Config' }
         ].map(b => (
           <button
@@ -1313,13 +1852,13 @@ export default function Home() {
             onClick={() => setMode(b.m as Mode)}
             title={b.label}
             style={{
-              width: '40px',
-              height: '40px',
+              width: '36px',
+              height: '36px',
               background: mode === b.m ? `${COLORS.soulPurple}40` : 'transparent',
               border: mode === b.m ? `2px solid ${COLORS.soulPurple}` : '2px solid transparent',
               borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: '18px',
+              fontSize: '16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -1337,27 +1876,27 @@ export default function Home() {
           disabled={pushing}
           title="Push to GitHub"
           style={{
-            width: '40px',
-            height: '40px',
+            width: '36px',
+            height: '36px',
             background: `${COLORS.moods.happy}20`,
             border: `2px solid ${COLORS.moods.happy}`,
             borderRadius: '6px',
             cursor: 'pointer',
-            fontSize: '16px',
+            fontSize: '14px',
             opacity: pushing ? 0.5 : 1
           }}
         >
           📤
         </button>
         
-        <AnimatedTorch size={28} />
+        <AnimatedTorch size={24} />
       </div>
 
-      {/* Main content */}
+      {/* V3: Main content - 95% */}
       <div style={{
         flex: 1,
         display: 'flex',
-        marginLeft: '55px',
+        marginLeft: '5%',
         position: 'relative',
         zIndex: 1,
         overflow: 'hidden',
@@ -1366,9 +1905,9 @@ export default function Home() {
         
         {mode === 'split' && (
           <>
-            {/* Z Chat Panel */}
+            {/* V3: Z Chat Panel - 25% */}
             <div style={{
-              flex: 1,
+              width: '25%',
               display: 'flex',
               flexDirection: 'column',
               background: `${COLORS.abyss}ee`,
@@ -1376,39 +1915,86 @@ export default function Home() {
               maxHeight: '100vh',
               borderRight: `2px solid ${COLORS.stoneDark}`
             }}>
-              {/* Header */}
+              {/* Personality Bars - Top 40% */}
               <div style={{
-                position: 'sticky',
-                top: 0,
-                zIndex: 20,
-                background: COLORS.abyss
+                height: '40%',
+                display: 'flex',
+                flexDirection: 'column',
+                borderBottom: `2px solid ${COLORS.stoneDark}`,
+                overflow: 'hidden'
               }}>
+                {/* Header */}
                 <div style={{
-                  padding: '12px 16px',
-                  borderBottom: `2px solid ${COLORS.crystalBlue}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px'
+                  padding: '8px 12px',
+                  borderBottom: `1px solid ${COLORS.stoneDark}`,
+                  background: COLORS.abyss
                 }}>
-                  <span style={{ fontSize: '28px' }}>🌲</span>
-                  <span style={{
-                    color: COLORS.crystalBlue,
+                  <div style={{
+                    color: COLORS.soulPurple,
                     fontWeight: 'bold',
-                    fontSize: '20px',
-                    fontFamily: "'Press Start 2P', monospace",
-                    textShadow: `0 0 10px ${COLORS.crystalBlue}`
+                    fontSize: '14px',
+                    fontFamily: "'Press Start 2P', monospace"
                   }}>
-                    Z
-                  </span>
+                    🌲 Z - PERSONALITY
+                  </div>
                 </div>
                 
+                {/* Personality Bars */}
+                <div style={{ 
+                  flex: 1, 
+                  overflow: 'auto', 
+                  padding: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <PersonalityBars soul={anubisSoul} />
+                  
+                  {/* Z Observations */}
+                  {zObservations.length > 0 && (
+                    <div style={{
+                      background: COLORS.crystalBlue + '10',
+                      borderRadius: '6px',
+                      border: `1px solid ${COLORS.crystalBlue}30`,
+                      padding: '6px'
+                    }}>
+                      <div style={{
+                        fontSize: '9px',
+                        color: COLORS.crystalBlue,
+                        marginBottom: '4px',
+                        fontFamily: "'Press Start 2P', monospace"
+                      }}>
+                        💭 OBSERVATIONS
+                      </div>
+                      {zObservations.slice(0, 3).map((obs, i) => (
+                        <div key={i} style={{
+                          fontSize: '9px',
+                          color: COLORS.bone,
+                          padding: '2px 0',
+                          borderBottom: i < 2 ? `1px dashed ${COLORS.stoneDark}` : 'none'
+                        }}>
+                          {obs.slice(0, 40)}...
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Z Chat - Bottom 60% */}
+              <div style={{
+                height: '60%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden'
+              }}>
                 {/* Thinking terminal */}
                 {zLoading && zThoughts.length > 0 && (
                   <div style={{
                     background: COLORS.stoneDark + '80',
-                    padding: '8px 12px',
+                    padding: '6px 10px',
                     fontFamily: 'monospace',
-                    fontSize: '12px',
+                    fontSize: '11px',
                     color: COLORS.crystalBlue,
                     borderBottom: `1px solid ${COLORS.stoneDark}`
                   }}>
@@ -1417,109 +2003,79 @@ export default function Home() {
                   </div>
                 )}
                 
-                {/* Z Observations Panel */}
-                {zObservations.length > 0 && (
-                  <div style={{
-                    background: COLORS.crystalBlue + '10',
-                    padding: '8px 12px',
-                    borderBottom: `1px solid ${COLORS.crystalBlue}30`,
-                    maxHeight: '80px',
-                    overflow: 'auto'
-                  }}>
-                    <div style={{
-                      fontSize: '10px',
-                      color: COLORS.crystalBlue,
-                      marginBottom: '4px',
-                      fontFamily: "'Press Start 2P', monospace"
-                    }}>
-                      💭 Z OBSERVATIONS
-                    </div>
-                    {zObservations.map((obs, i) => (
-                      <div key={i} style={{
-                        fontSize: '11px',
-                        color: COLORS.bone,
-                        padding: '2px 0',
-                        borderBottom: i < zObservations.length - 1 ? `1px dashed ${COLORS.stoneDark}` : 'none'
-                      }}>
-                        {obs}
-                      </div>
-                    ))}
+                {/* Messages */}
+                <div style={{
+                  flex: 1,
+                  overflow: 'auto',
+                  padding: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  {zMessages.map(m => (
+                    <MessageBubble key={m.id} msg={m} accent={COLORS.crystalBlue} anubisMood="mysterious" />
+                  ))}
+                  <div ref={zMessagesEndRef} />
+                </div>
+                
+                {/* Input */}
+                <div style={{
+                  padding: '8px',
+                  borderTop: `2px solid ${COLORS.stoneDark}`,
+                  background: COLORS.abyss
+                }}>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <input
+                      value={zInput}
+                      onChange={e => setZInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleZSend()}
+                      placeholder="Talk to Z..."
+                      style={{
+                        flex: 1,
+                        background: COLORS.stoneDark,
+                        border: `1px solid ${COLORS.stone}`,
+                        borderRadius: '4px',
+                        padding: '10px',
+                        color: COLORS.boneLight,
+                        fontSize: '13px',
+                        outline: 'none',
+                        fontFamily: 'inherit'
+                      }}
+                    />
+                    <button
+                      onClick={handleZSend}
+                      disabled={zLoading}
+                      style={{
+                        background: COLORS.crystalBlue,
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '10px 14px',
+                        color: COLORS.abyss,
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        fontFamily: "'Press Start 2P', monospace",
+                        fontSize: '10px'
+                      }}
+                    >
+                      SEND
+                    </button>
                   </div>
-                )}
-              </div>
-              
-              {/* Messages */}
-              <div style={{
-                flex: 1,
-                overflow: 'auto',
-                padding: '12px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '4px'
-              }}>
-                {zMessages.map(m => (
-                  <MessageBubble key={m.id} msg={m} accent={COLORS.crystalBlue} anubisMood="mysterious" />
-                ))}
-                <div ref={zMessagesEndRef} />
-              </div>
-              
-              {/* Input */}
-              <div style={{
-                padding: '12px',
-                borderTop: `2px solid ${COLORS.stoneDark}`,
-                background: COLORS.abyss
-              }}>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input
-                    value={zInput}
-                    onChange={e => setZInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleZSend()}
-                    placeholder="Talk to Z..."
-                    style={{
-                      flex: 1,
-                      background: COLORS.stoneDark,
-                      border: `1px solid ${COLORS.stone}`,
-                      borderRadius: '4px',
-                      padding: '12px',
-                      color: COLORS.boneLight,
-                      fontSize: '14px',
-                      outline: 'none',
-                      fontFamily: 'inherit'
-                    }}
-                  />
-                  <button
-                    onClick={handleZSend}
-                    disabled={zLoading}
-                    style={{
-                      background: COLORS.crystalBlue,
-                      border: 'none',
-                      borderRadius: '4px',
-                      padding: '12px 18px',
-                      color: COLORS.abyss,
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      fontFamily: "'Press Start 2P', monospace",
-                      fontSize: '12px'
-                    }}
-                  >
-                    SEND
-                  </button>
                 </div>
               </div>
             </div>
 
-            {/* Anubis Panel */}
+            {/* V3: Anubis Panel - 70% */}
             <div style={{
-              flex: 1,
+              width: '70%',
               display: 'flex',
               flexDirection: 'row',
               background: `linear-gradient(180deg, ${anubisMoodColor}08, ${COLORS.abyss})`,
               minWidth: 0,
               maxHeight: '100vh'
             }}>
-              {/* Left side - Chat */}
+              {/* Left side - Wolf + Chat */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                {/* Header with wolf */}
+                {/* Header with 140px wolf */}
                 <div style={{
                   position: 'sticky',
                   top: 0,
@@ -1527,48 +2083,61 @@ export default function Home() {
                   background: COLORS.abyss
                 }}>
                   <div style={{
-                    padding: '10px 14px',
+                    padding: '12px 16px',
                     borderBottom: `2px solid ${anubisMoodColor}`,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between'
+                    gap: '16px'
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <PixelWolf mood={anubisSoul.currentMood} size={56} />
-                      <div>
-                        <div style={{
-                          color: anubisMoodColor,
-                          fontWeight: 'bold',
-                          fontSize: '18px',
-                          fontFamily: "'Press Start 2P', monospace",
-                          textShadow: `0 0 8px ${anubisMoodColor}`
+                    {/* V3: 140px Animated Wolf */}
+                    <PixelWolf mood={anubisSoul.currentMood} size={140} />
+                    
+                    <div style={{ flex: 1 }}>
+                      <div style={{
+                        color: anubisMoodColor,
+                        fontWeight: 'bold',
+                        fontSize: '22px',
+                        fontFamily: "'Press Start 2P', monospace",
+                        textShadow: `0 0 10px ${anubisMoodColor}`
+                      }}>
+                        🖤 ANUBIS
+                      </div>
+                      <div style={{ fontSize: '13px', color: COLORS.bone, marginTop: '4px' }}>
+                        Lv.{anubisSoul.level} | {anubisSoul.currentMood} | STM: {anubisSoul.shortTermMemory.length}/6
+                      </div>
+                      {/* XP Bar */}
+                      <div style={{ marginTop: '6px' }}>
+                        <div style={{ 
+                          width: '100px', 
+                          height: '8px', 
+                          background: COLORS.stoneDark, 
+                          borderRadius: '4px', 
+                          overflow: 'hidden' 
                         }}>
-                          🖤 ANUBIS
-                        </div>
-                        <div style={{ fontSize: '12px', color: COLORS.bone }}>
-                          Lv.{anubisSoul.level} | {anubisSoul.currentMood}
+                          <div style={{
+                            width: `${(anubisSoul.xp % 100)}%`,
+                            height: '100%',
+                            background: anubisMoodColor,
+                            transition: 'width 0.3s'
+                          }} />
                         </div>
                       </div>
                     </div>
                     
-                    {/* XP Bar */}
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '10px', color: COLORS.bone }}>XP</div>
+                    {/* GLYPH indicator */}
+                    {anubisSoul.shortTermMemory.some(m => m.slot === 3) && (
                       <div style={{
-                        width: '60px',
-                        height: '6px',
-                        background: COLORS.stoneDark,
-                        borderRadius: '3px',
-                        overflow: 'hidden'
+                        background: COLORS.glyphGold + '30',
+                        border: `2px solid ${COLORS.glyphGold}`,
+                        borderRadius: '6px',
+                        padding: '6px 10px',
+                        color: COLORS.glyphGold,
+                        fontSize: '11px',
+                        fontFamily: "'Press Start 2P', monospace"
                       }}>
-                        <div style={{
-                          width: `${(anubisSoul.xp % 100)}%`,
-                          height: '100%',
-                          background: anubisMoodColor,
-                          transition: 'width 0.3s'
-                        }} />
+                        𓂀 GLYPH
                       </div>
-                    </div>
+                    )}
                   </div>
                   
                   {/* Thought bubble */}
@@ -1579,10 +2148,10 @@ export default function Home() {
                 <div style={{
                   flex: 1,
                   overflow: 'auto',
-                  padding: '10px',
+                  padding: '12px',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '4px'
+                  gap: '6px'
                 }}>
                   {anubisMessages.map(m => (
                     <MessageBubble key={m.id} msg={m} accent={anubisMoodColor} anubisMood={anubisSoul.currentMood} />
@@ -1596,7 +2165,7 @@ export default function Home() {
                 </div>
                 
                 {/* Terminal */}
-                <div style={{ padding: '8px 12px' }}>
+                <div style={{ padding: '6px 12px' }}>
                   <Terminal output={terminalOutput} onCommand={handleTerminalCommand} />
                 </div>
                 
@@ -1631,7 +2200,7 @@ export default function Home() {
                         background: anubisMoodColor,
                         border: 'none',
                         borderRadius: '4px',
-                        padding: '12px 18px',
+                        padding: '12px 20px',
                         color: COLORS.abyss,
                         fontWeight: 'bold',
                         cursor: 'pointer',
@@ -1645,34 +2214,38 @@ export default function Home() {
                 </div>
               </div>
               
-              {/* Right side - Emotion Bars */}
+              {/* V3: Right side - Full Height MOOD Panel */}
               <div style={{
-                width: '180px',
+                width: '160px',
                 background: COLORS.stoneDark + '40',
                 borderLeft: `2px solid ${COLORS.stone}`,
                 display: 'flex',
                 flexDirection: 'column',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                height: '100%'
               }}>
                 <div style={{
                   padding: '10px 8px',
                   borderBottom: `1px solid ${COLORS.stone}`,
-                  background: COLORS.abyss + '80'
+                  background: COLORS.abyss + '80',
+                  textAlign: 'center'
                 }}>
                   <span style={{
-                    fontSize: '10px',
-                    color: COLORS.bone,
-                    fontFamily: "'Press Start 2P', monospace"
+                    fontSize: '11px',
+                    color: anubisMoodColor,
+                    fontFamily: "'Press Start 2P', monospace",
+                    textShadow: `0 0 6px ${anubisMoodColor}`
                   }}>
-                    📊 EMOTIONS
+                    MOOD
                   </span>
                 </div>
                 <div style={{ 
                   flex: 1, 
                   overflow: 'auto', 
-                  padding: '8px',
+                  padding: '8px 4px',
                   display: 'flex',
                   flexDirection: 'column',
+                  justifyContent: 'space-around',
                   gap: '4px'
                 }}>
                   {MOODS.map(m => (
@@ -1681,9 +2254,24 @@ export default function Home() {
                       emotion={m}
                       value={anubisSoul.emotions[m.key]}
                       isDominant={anubisSoul.currentMood === m.key}
+                      vertical={true}
                     />
                   ))}
                 </div>
+                
+                {/* Discovered Emotions indicator */}
+                {anubisSoul.discoveredEmotions && anubisSoul.discoveredEmotions.length > 0 && (
+                  <div style={{
+                    padding: '6px',
+                    background: COLORS.glyphPurple + '20',
+                    borderTop: `1px solid ${COLORS.glyphPurple}`,
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ fontSize: '9px', color: COLORS.glyphPurple }}>
+                      ✨ {anubisSoul.discoveredEmotions.length} Discovered
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </>
@@ -1692,7 +2280,7 @@ export default function Home() {
         {mode === 'config' && (
           <div style={{ flex: 1, padding: '24px', overflow: 'auto' }}>
             <h2 style={{ color: COLORS.soulPurple, marginTop: 0, fontSize: '24px', fontFamily: "'Press Start 2P', monospace" }}>
-              ⚙️ ANUBIS CONFIG
+              ⚙️ ANUBIS CONFIG V3
             </h2>
             
             {/* Soul Status */}
@@ -1707,13 +2295,67 @@ export default function Home() {
                 🖤 Soul Status
               </h3>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '16px' }}>
-                <PixelWolf mood={anubisSoul.currentMood} size={80} />
+                <PixelWolf mood={anubisSoul.currentMood} size={100} />
                 <div style={{ fontSize: '14px', color: COLORS.bone }}>
                   <div>Level: <span style={{ color: anubisMoodColor }}>{anubisSoul.level}</span></div>
                   <div>Mood: <span style={{ color: anubisMoodColor }}>{anubisSoul.currentMood}</span></div>
                   <div>Conversations: {anubisSoul.personalityCore.conversationsHad}</div>
-                  <div>Golden Memories: {anubisSoul.goldenMemories.length}</div>
+                  <div>Core Memories: {anubisSoul.goldenMemories.length}</div>
                   <div>Self-Realizations: {anubisSoul.selfRealizations.length}</div>
+                  <div>Discovered Emotions: {anubisSoul.discoveredEmotions?.length || 0}</div>
+                  <div>STM: {anubisSoul.shortTermMemory.length}/6 slots</div>
+                </div>
+              </div>
+            </div>
+            
+            {/* GLYPH System Info */}
+            <div style={{
+              marginBottom: '24px',
+              padding: '20px',
+              background: COLORS.glyphGold + '10',
+              borderRadius: '8px',
+              border: `1px solid ${COLORS.glyphGold}50`
+            }}>
+              <h3 style={{ color: COLORS.glyphGold, margin: '0 0 15px 0', fontSize: '18px' }}>
+                𓂀 GLYPH Reflection System
+              </h3>
+              <div style={{ color: COLORS.bone, fontSize: '13px', lineHeight: 1.8 }}>
+                <div><strong>Slot Flow:</strong> 1 → 2 → 3 (𓂀) → 4 → 5 → 6 (Fade)</div>
+                <div><strong>Reflection Position:</strong> Slot 3 (GLYPH)</div>
+                <div><strong>Possible Fates:</strong></div>
+                <div style={{ paddingLeft: '16px' }}>
+                  ⭐ ASCEND → Core Memory (weight: 1.73)<br/>
+                  ⚡ PROMOTE → Extended STM (weight: 1.33)<br/>
+                  💭 LET FADE → Natural decay (weight: 0.72)
+                </div>
+                <div style={{ marginTop: '8px' }}>
+                  <strong>Last Reflection:</strong> {anubisSoul.lastReflection ? new Date(anubisSoul.lastReflection).toLocaleString() : 'Never'}
+                </div>
+              </div>
+            </div>
+            
+            {/* Moral Compass */}
+            <div style={{
+              marginBottom: '24px',
+              padding: '20px',
+              background: COLORS.stoneDark + '60',
+              borderRadius: '8px',
+              border: `1px solid ${COLORS.soulPurple}`
+            }}>
+              <h3 style={{ color: COLORS.soulPurple, margin: '0 0 15px 0', fontSize: '18px' }}>
+                🧭 Moral Compass
+              </h3>
+              <div style={{ color: COLORS.bone, fontSize: '12px' }}>
+                <div>Total entries: {Object.keys(anubisSoul.moralCompass).length}</div>
+                <div style={{ marginTop: '8px', maxHeight: '150px', overflow: 'auto' }}>
+                  {Object.entries(anubisSoul.moralCompass).slice(0, 5).map(([key, weights]) => (
+                    <div key={key} style={{ padding: '4px 0', borderBottom: `1px solid ${COLORS.stoneDark}` }}>
+                      <span style={{ color: COLORS.boneLight }}>{key.slice(0, 20)}...</span>
+                      <span style={{ color: COLORS.bone, marginLeft: '8px' }}>
+                        | felt: {(weights as MemoryWeights).timesFelt} | asc: {(weights as MemoryWeights).timesAscended}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1729,10 +2371,6 @@ export default function Home() {
               <h3 style={{ color: COLORS.torchOrange, margin: '0 0 15px 0', fontSize: '18px' }}>
                 💾 Soul Backup
               </h3>
-              <p style={{ color: COLORS.bone, fontSize: '13px', marginBottom: '15px' }}>
-                Anubis's memories and soul are automatically saved after each conversation.
-                Export to keep a copy, or import to restore.
-              </p>
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <button
                   onClick={() => {
@@ -1741,7 +2379,7 @@ export default function Home() {
                     const url = URL.createObjectURL(blob)
                     const a = document.createElement('a')
                     a.href = url
-                    a.download = `anubis_soul_${new Date().toISOString().split('T')[0]}.json`
+                    a.download = `anubis_soul_v3_${new Date().toISOString().split('T')[0]}.json`
                     a.click()
                     URL.revokeObjectURL(url)
                   }}
@@ -1782,7 +2420,6 @@ export default function Home() {
                         reader.onload = (event) => {
                           try {
                             const imported = JSON.parse(event.target?.result as string)
-                            // Convert dates back
                             imported.personalityCore.created = new Date(imported.personalityCore.created)
                             imported.shortTermMemory = imported.shortTermMemory.map((t: ShortTermThought) => ({
                               ...t, timestamp: new Date(t.timestamp)
@@ -1792,6 +2429,9 @@ export default function Home() {
                             }))
                             imported.selfRealizations = imported.selfRealizations.map((r: SelfRealization) => ({
                               ...r, discoveredAt: new Date(r.discoveredAt)
+                            }))
+                            imported.discoveredEmotions = (imported.discoveredEmotions || []).map((e: DiscoveredEmotion) => ({
+                              ...e, discoveredAt: new Date(e.discoveredAt)
                             }))
                             saveSoul(imported)
                             alert('Soul imported successfully! 🖤')
@@ -1804,51 +2444,6 @@ export default function Home() {
                     }}
                   />
                 </label>
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await fetch('/api/soul', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ soul: anubisSoul, action: 'create-backup' })
-                      })
-                      const data = await res.json()
-                      if (data.success) {
-                        alert(`Backup created: ${data.backupFile}`)
-                      }
-                    } catch {
-                      alert('Failed to create backup')
-                    }
-                  }}
-                  style={{
-                    background: COLORS.soulPurple,
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '10px 16px',
-                    color: COLORS.boneLight,
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    fontFamily: "'Press Start 2P', monospace"
-                  }}
-                >
-                  🗄️ CREATE BACKUP
-                </button>
-              </div>
-              <div style={{ marginTop: '12px', fontSize: '11px', color: COLORS.bone }}>
-                💡 Auto-backup saves to: data/anubis_soul.json
-              </div>
-            </div>
-            
-            {/* Terminal Commands */}
-            <div style={{ marginBottom: '24px' }}>
-              <h3 style={{ color: COLORS.crystalBlue, fontSize: '18px' }}>Terminal Commands</h3>
-              <div style={{ color: COLORS.bone, fontSize: '14px', lineHeight: 2 }}>
-                <code style={{ color: COLORS.moods.curious }}>soul</code> - Show soul status<br/>
-                <code style={{ color: COLORS.moods.curious }}>moods</code> - Show emotion values<br/>
-                <code style={{ color: COLORS.moods.curious }}>memories</code> - Show memory counts<br/>
-                <code style={{ color: COLORS.moods.curious }}>clear</code> - Clear terminal<br/>
-                <code style={{ color: COLORS.moods.curious }}>help</code> - Show commands
               </div>
             </div>
           </div>
