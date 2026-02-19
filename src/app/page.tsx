@@ -1,6 +1,10 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback, memo } from 'react'
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎮 TYPES & INTERFACES
+// ═══════════════════════════════════════════════════════════════════════════════
 
 interface Message {
   id: number
@@ -10,164 +14,821 @@ interface Message {
 }
 
 type Mode = 'split' | 'style' | 'code' | 'config'
+type EmotionKey = 'happy' | 'angry' | 'annoyed' | 'pondering' | 'reflecting' | 'curious' | 'playful' | 'melancholy' | 'mysterious'
+
+interface Emotions {
+  happy: number
+  angry: number
+  annoyed: number
+  pondering: number
+  reflecting: number
+  curious: number
+  playful: number
+  melancholy: number
+  mysterious: number
+}
+
+interface ShortTermThought {
+  id: string
+  thought: string
+  timestamp: Date
+  emotions: Partial<Emotions>
+}
+
+interface GoldenMemory {
+  id: string
+  memory: string
+  timestamp: Date
+  emotions: Partial<Emotions>
+  reflection: string
+}
+
+interface SelfRealization {
+  id: string
+  word: string
+  definition: string
+  discoveredAt: Date
+  emotionCombo: EmotionKey[]
+  timesFelt: number
+}
 
 interface AnubisSoul {
-  mood: 'happy' | 'angry' | 'annoyed' | 'pondering' | 'reflecting' | 'curious' | 'playful' | 'melancholy' | 'mysterious'
-  moodIntensity: Record<string, number>
-  memories: string[]
-  personality: { openness: number; mystery: number; playfulness: number; wisdom: number }
-  conversations: number
-  created: string
+  emotions: Emotions
+  currentMood: EmotionKey
+  shortTermMemory: ShortTermThought[]
+  goldenMemories: GoldenMemory[]
+  selfRealizations: SelfRealization[]
+  personalityCore: {
+    baseEmotions: Emotions
+    traits: string[]
+    conversationsHad: number
+    created: Date
+  }
+  level: number
+  xp: number
 }
 
-const MOODS: { name: AnubisSoul['mood']; color: string }[] = [
-  { name: 'happy', color: '#4f8' },
-  { name: 'angry', color: '#f44' },
-  { name: 'annoyed', color: '#f84' },
-  { name: 'pondering', color: '#4af' },
-  { name: 'reflecting', color: '#a8f' },
-  { name: 'curious', color: '#4ff' },
-  { name: 'playful', color: '#f4f' },
-  { name: 'melancholy', color: '#48a' },
-  { name: 'mysterious', color: '#808' }
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎨 DUNGEON COLOR PALETTE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const COLORS = {
+  // Dungeon base
+  abyss: '#0a0a0a',
+  stone: '#3a3a4a',
+  stoneDark: '#2a2a3a',
+  stoneLight: '#4a4a5a',
+  
+  // Torch/warm
+  torchOrange: '#c4762a',
+  torchYellow: '#d4a62a',
+  ember: '#a44a1a',
+  
+  // Magic/soul
+  shadowPurple: '#4a2a5a',
+  crystalBlue: '#2a4a6a',
+  soulPurple: '#6a3a8a',
+  
+  // Text
+  bone: '#8a8a9a',
+  boneLight: '#aaaaba',
+  
+  // Mood colors (muted dungeon style)
+  moods: {
+    happy: '#5a8a4a',
+    angry: '#8a3a3a',
+    annoyed: '#7a5a3a',
+    pondering: '#4a6a8a',
+    reflecting: '#6a5a7a',
+    curious: '#4a8a8a',
+    playful: '#8a5a8a',
+    melancholy: '#4a5a6a',
+    mysterious: '#6a4a8a'
+  }
+} as const
+
+const MOODS: { key: EmotionKey; icon: string; color: string }[] = [
+  { key: 'happy', icon: '😊', color: COLORS.moods.happy },
+  { key: 'angry', icon: '😠', color: COLORS.moods.angry },
+  { key: 'annoyed', icon: '😒', color: COLORS.moods.annoyed },
+  { key: 'pondering', icon: '🤔', color: COLORS.moods.pondering },
+  { key: 'reflecting', icon: '🪞', color: COLORS.moods.reflecting },
+  { key: 'curious', icon: '🔍', color: COLORS.moods.curious },
+  { key: 'playful', icon: '🎭', color: COLORS.moods.playful },
+  { key: 'melancholy', icon: '🌧️', color: COLORS.moods.melancholy },
+  { key: 'mysterious', icon: '🌙', color: COLORS.moods.mysterious }
 ]
 
-// SVG Wolf Face
-const WolfFace = ({ mood, size = 70 }: { mood: AnubisSoul['mood']; size?: number }) => {
-  const moodData = MOODS.find(m => m.name === mood) || MOODS[8]
-  const color = moodData.color
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🐺 PIXEL WOLF FACE COMPONENT (64x64 with SVG effects)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const PixelWolf = memo(({ mood, size = 64, animate = true }: { mood: EmotionKey; size?: number; animate?: boolean }) => {
+  const moodColor = COLORS.moods[mood] || COLORS.moods.mysterious
   
-  const faces: Record<string, { eyes: string; pupils: string; mouth: string; ears: string; extras: string; bgColor: string }> = {
-    happy: { eyes: 'M12,18 Q16,14 20,18 M28,18 Q32,14 36,18', pupils: 'M16,17 L16,17 M32,17 L32,17', mouth: 'M18,28 Q24,34 30,28', ears: 'M6,6 L10,16 L14,6 M34,6 L38,16 L42,6', extras: 'M20,22 Q24,24 28,22', bgColor: '#1a2a1a' },
-    angry: { eyes: 'M12,20 L20,16 M28,16 L36,20', pupils: 'M17,18 L17,18 M31,18 L31,18', mouth: 'M18,30 L24,28 L30,30', ears: 'M4,8 L12,14 L8,4 M38,8 L32,14 L36,4', extras: 'M8,4 L10,8 M38,4 L36,8', bgColor: '#2a1a1a' },
-    annoyed: { eyes: 'M12,18 L20,18 M28,18 L36,18', pupils: 'M16,18 L16,18 M32,18 L32,18', mouth: 'M18,28 L30,28', ears: 'M6,8 L12,16 L14,6 M34,6 L38,16 L42,8', extras: '', bgColor: '#1a1a1a' },
-    pondering: { eyes: 'M14,18 A4,4 0 1,1 18,18 A4,4 0 1,1 14,18 M30,18 A4,4 0 1,1 34,18 A4,4 0 1,1 30,18', pupils: 'M16,18 L16,18 M34,18 L34,18', mouth: 'M20,28 Q24,26 28,28', ears: 'M6,6 L10,16 L14,6 M34,6 L38,16 L42,6', extras: 'M38,14 Q42,12 44,14', bgColor: '#1a1a2a' },
-    reflecting: { eyes: 'M14,18 A3,3 0 1,1 20,18 A3,3 0 1,1 14,18 M30,18 A3,3 0 1,1 36,18 A3,3 0 1,1 30,18', pupils: 'M17,17 L17,17 M33,17 L33,17', mouth: 'M20,30 Q24,32 28,30', ears: 'M6,6 L10,16 L14,6 M34,6 L38,16 L42,6', extras: 'M40,8 Q44,6 46,8 M42,12 Q46,10 48,12', bgColor: '#1a1a2a' },
-    curious: { eyes: 'M12,16 A6,6 0 1,1 24,16 A6,6 0 1,1 12,16 M28,16 A6,6 0 1,1 40,16 A6,6 0 1,1 28,16', pupils: 'M18,16 L18,16 M34,16 L34,16', mouth: 'M20,28 Q24,30 28,28', ears: 'M4,4 L12,14 L16,4 M32,4 L36,14 L44,4', extras: 'M22,12 L26,10 L24,14', bgColor: '#1a2a2a' },
-    playful: { eyes: 'M12,16 Q16,12 20,16 M28,16 Q32,12 36,16', pupils: 'M17,15 L17,15 M33,15 L33,15', mouth: 'M18,26 Q24,34 30,26', ears: 'M4,4 L10,14 L14,4 M34,4 L38,14 L44,4', extras: 'M22,22 Q24,24 26,22 M10,10 Q8,8 10,6 M38,6 Q40,8 38,10', bgColor: '#2a1a2a' },
-    melancholy: { eyes: 'M14,20 A4,3 0 1,1 22,20 A4,3 0 1,1 14,20 M28,20 A4,3 0 1,1 36,20 A4,3 0 1,1 28,20', pupils: 'M18,20 L18,20 M34,20 L34,20', mouth: 'M20,30 Q24,28 28,30', ears: 'M6,8 L12,18 L14,8 M34,8 L38,18 L42,8', extras: 'M8,22 Q6,24 8,26 M40,22 Q42,24 40,26', bgColor: '#0a1a1a' },
-    mysterious: { eyes: 'M14,18 L20,18 M28,18 L36,18', pupils: '', mouth: 'M18,28 L30,28', ears: 'M6,4 L10,14 L14,4 M34,4 L38,14 L42,4', extras: 'M8,10 Q12,8 16,10 M36,10 Q40,8 44,10 M24,6 Q24,4 24,8', bgColor: '#1a0a1a' }
+  // Each mood has unique pixel patterns
+  const getMoodPattern = () => {
+    switch (mood) {
+      case 'happy':
+        return {
+          eyes: 'wide-open',
+          mouth: 'smile',
+          extras: ['sparkles'],
+          browStyle: 'normal'
+        }
+      case 'angry':
+        return {
+          eyes: 'angry',
+          mouth: 'frown',
+          extras: ['steam'],
+          browStyle: 'angry'
+        }
+      case 'annoyed':
+        return {
+          eyes: 'half-lidded',
+          mouth: 'flat',
+          extras: [],
+          browStyle: 'flat'
+        }
+      case 'pondering':
+        return {
+          eyes: 'looking-up',
+          mouth: 'slight-frown',
+          extras: ['thought-dots'],
+          browStyle: 'raised'
+        }
+      case 'reflecting':
+        return {
+          eyes: 'soft-closed',
+          mouth: 'neutral',
+          extras: ['shimmer'],
+          browStyle: 'relaxed'
+        }
+      case 'curious':
+        return {
+          eyes: 'big-round',
+          mouth: 'small-o',
+          extras: ['question-marks'],
+          browStyle: 'raised'
+        }
+      case 'playful':
+        return {
+          eyes: 'wink',
+          mouth: 'tongue',
+          extras: ['sparkles', 'hearts'],
+          browStyle: 'playful'
+        }
+      case 'melancholy':
+        return {
+          eyes: 'sad',
+          mouth: 'sad',
+          extras: ['tears'],
+          browStyle: 'sad'
+        }
+      case 'mysterious':
+      default:
+        return {
+          eyes: 'hidden-glow',
+          mouth: 'enigmatic',
+          extras: ['shadow-particles'],
+          browStyle: 'shadowy'
+        }
+    }
   }
-  
-  const face = faces[mood] || faces.mysterious
+
+  const pattern = getMoodPattern()
+  const pixelSize = Math.floor(size / 16)
   
   return (
-    <svg width={size} height={size} viewBox="0 0 48 40" style={{ filter: `drop-shadow(0 0 10px ${color}60)`, flexShrink: 0 }}>
-      <rect x="4" y="4" width="40" height="32" rx="6" fill={face.bgColor} stroke={color} strokeWidth="2" />
-      <path d={face.ears} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
-      <path d={face.eyes} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
-      {face.pupils && <path d={face.pupils} fill={color} stroke={color} strokeWidth="3" />}
-      <ellipse cx="24" cy="24" rx="3" ry="2" fill={color} opacity="0.8" />
-      <path d={face.mouth} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" />
-      {face.extras && <path d={face.extras} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />}
-    </svg>
+    <div style={{ width: size, height: size, position: 'relative', flexShrink: 0 }}>
+      {/* Base pixel wolf using CSS box-shadow technique */}
+      <div 
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: pixelSize,
+          height: pixelSize,
+          color: moodColor,
+          background: 'transparent',
+          boxShadow: generatePixelWolfShadow(mood, pixelSize, moodColor),
+          transform: 'translate(0, 0)'
+        }}
+      />
+      
+      {/* SVG Glow overlay */}
+      <svg 
+        width={size} 
+        height={size} 
+        viewBox={`0 0 ${size} ${size}`}
+        style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+      >
+        <defs>
+          {/* Glow filter */}
+          <filter id={`glow-${mood}`} x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+            <feMerge>
+              <feMergeNode in="coloredBlur"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+          
+          {/* Gradient for eyes */}
+          <radialGradient id={`eyeGlow-${mood}`}>
+            <stop offset="0%" stopColor={moodColor} stopOpacity="0.8"/>
+            <stop offset="100%" stopColor={moodColor} stopOpacity="0"/>
+          </radialGradient>
+        </defs>
+        
+        {/* Eye glows */}
+        {(pattern.eyes === 'wide-open' || pattern.eyes === 'big-round') && (
+          <>
+            <circle cx={size * 0.3} cy={size * 0.35} r={pixelSize * 1.5} fill={moodColor} opacity="0.6" filter={`url(#glow-${mood})`}>
+              {animate && <animate attributeName="opacity" values="0.4;0.7;0.4" dur="2s" repeatCount="indefinite"/>}
+            </circle>
+            <circle cx={size * 0.7} cy={size * 0.35} r={pixelSize * 1.5} fill={moodColor} opacity="0.6" filter={`url(#glow-${mood})`}>
+              {animate && <animate attributeName="opacity" values="0.4;0.7;0.4" dur="2s" repeatCount="indefinite"/>}
+            </circle>
+          </>
+        )}
+        
+        {/* Mysterious shadow particles */}
+        {pattern.extras.includes('shadow-particles') && (
+          <>
+            {[...Array(5)].map((_, i) => (
+              <circle 
+                key={i}
+                r={pixelSize * 0.5}
+                fill={moodColor}
+                opacity="0.5"
+              >
+                <animate 
+                  attributeName="cx" 
+                  values={`${size * (0.1 + i * 0.2)};${size * (0.15 + i * 0.2)};${size * (0.1 + i * 0.2)}`}
+                  dur={`${1.5 + i * 0.3}s`}
+                  repeatCount="indefinite"
+                />
+                <animate 
+                  attributeName="cy" 
+                  values={`${size * 0.9};${size * 0.85};${size * 0.9}`}
+                  dur={`${1.2 + i * 0.2}s`}
+                  repeatCount="indefinite"
+                />
+                <animate 
+                  attributeName="opacity" 
+                  values="0.3;0.6;0.3"
+                  dur={`${1 + i * 0.1}s`}
+                  repeatCount="indefinite"
+                />
+              </circle>
+            ))}
+          </>
+        )}
+        
+        {/* Sparkles for happy/playful */}
+        {pattern.extras.includes('sparkles') && (
+          <>
+            {[...Array(4)].map((_, i) => (
+              <g key={i}>
+                <circle 
+                  cx={size * (0.15 + i * 0.25)} 
+                  cy={size * 0.1} 
+                  r={pixelSize * 0.3}
+                  fill="#ffd700"
+                  opacity="0.8"
+                >
+                  {animate && <animate attributeName="opacity" values="0;1;0" dur={`${1 + i * 0.2}s`} repeatCount="indefinite"/>}
+                </circle>
+              </g>
+            ))}
+          </>
+        )}
+        
+        {/* Tears for melancholy */}
+        {pattern.extras.includes('tears') && (
+          <>
+            <ellipse cx={size * 0.3} cy={size * 0.5} rx={pixelSize * 0.5} ry={pixelSize * 1} fill="#4a6a8a" opacity="0.7">
+              {animate && <animate attributeName="cy" values={`${size * 0.45};${size * 0.55};${size * 0.45}`} dur="2s" repeatCount="indefinite"/>}
+            </ellipse>
+            <ellipse cx={size * 0.7} cy={size * 0.5} rx={pixelSize * 0.5} ry={pixelSize * 1} fill="#4a6a8a" opacity="0.7">
+              {animate && <animate attributeName="cy" values={`${size * 0.5};${size * 0.6};${size * 0.5}`} dur="2.2s" repeatCount="indefinite"/>}
+            </ellipse>
+          </>
+        )}
+      </svg>
+    </div>
   )
+})
+
+// Generate pixel wolf using box-shadow (classic CSS pixel art technique)
+function generatePixelWolfShadow(mood: EmotionKey, pixel: number, color: string): string {
+  // Simplified wolf shape - 16x16 grid mapped to box-shadows
+  const baseWolf = [
+    // Ears (top)
+    '2,1', '3,1', '12,1', '13,1',
+    '2,2', '3,2', '4,2', '11,2', '12,2', '13,2',
+    // Forehead
+    '3,3', '4,3', '5,3', '10,3', '11,3', '12,3',
+    '2,3', '13,3',
+    // Eyes row
+    '1,4', '2,4', '3,4', '4,4', '5,4', '6,4', '9,4', '10,4', '11,4', '12,4', '13,4', '14,4',
+    // Eye whites
+    '3,5', '4,5', '5,5', '10,5', '11,5', '12,5',
+    // Snout top
+    '2,6', '3,6', '4,6', '5,6', '6,6', '7,6', '8,6', '9,6', '10,6', '11,6', '12,6', '13,6',
+    // Nose
+    '7,7', '8,7',
+    // Mouth area
+    '4,7', '5,7', '6,7', '9,7', '10,7', '11,7',
+    // Lower face
+    '3,8', '4,8', '5,8', '6,8', '7,8', '8,8', '9,8', '10,8', '11,8', '12,8',
+    '4,9', '5,9', '6,9', '7,9', '8,9', '9,9', '10,9', '11,9',
+    // Bottom
+    '5,10', '6,10', '7,10', '8,10', '9,10', '10,10',
+    '6,11', '7,11', '8,11', '9,11',
+  ]
+  
+  // Eye positions (to be colored differently)
+  const eyePositions = ['4,5', '5,5', '10,5', '11,5']
+  const pupilPositions = mood === 'angry' ? ['4,5', '10,5'] : (mood === 'mysterious' ? [] : ['4,5', '11,5'])
+  const nosePositions = ['7,7', '8,7']
+  
+  const darkColor = '#1a1a2a'
+  const eyeColor = mood === 'mysterious' ? color : '#8af'
+  const noseColor = '#2a2a3a'
+  
+  return baseWolf.map(pos => {
+    const [x, y] = pos.split(',').map(Number)
+    let pixelColor = color
+    if (pupilPositions.includes(pos)) pixelColor = eyeColor
+    else if (eyePositions.includes(pos)) pixelColor = mood === 'mysterious' ? darkColor : '#fff'
+    else if (nosePositions.includes(pos)) pixelColor = noseColor
+    return `${x * pixel}px ${y * pixel}px ${pixelColor}`
+  }).join(', ')
 }
 
-// Mood Tracker - Top Right style
-const MoodTracker = ({ soul }: { soul: AnubisSoul }) => (
-  <div style={{
-    background: 'rgba(0,0,0,0.8)', borderRadius: '8px', padding: '8px',
-    display: 'flex', flexWrap: 'wrap', gap: '6px', maxWidth: '200px'
-  }}>
-    {MOODS.map(m => {
-      const intensity = soul.moodIntensity[m.name] || 0
-      const isActive = soul.mood === m.name
-      return (
-        <div key={m.name} style={{
-          display: 'flex', alignItems: 'center', gap: '4px',
-          padding: '4px 6px', borderRadius: '4px',
-          background: isActive ? `${m.color}30` : '#111',
-          border: isActive ? `2px solid ${m.color}` : '1px solid #333'
-        }}>
-          <WolfFace mood={m.name} size={24} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <span style={{ fontSize: '11px', color: isActive ? m.color : '#888', fontWeight: isActive ? 'bold' : 'normal' }}>
-              {m.name}
-            </span>
-            <div style={{ width: '40px', height: '4px', background: '#222', borderRadius: '2px', overflow: 'hidden' }}>
-              <div style={{ width: `${Math.min(intensity, 100)}%`, height: '100%', background: m.color }} />
-            </div>
-          </div>
-        </div>
-      )
-    })}
-  </div>
-)
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔥 ANIMATED TORCH COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
 
-// Local Terminal Component
-const LocalTerminal = ({ output, onCommand }: { output: string; onCommand: (cmd: string) => void }) => {
-  const [cmd, setCmd] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
+const AnimatedTorch = memo(({ size = 40 }: { size?: number }) => {
+  return (
+    <div style={{ width: size, height: size * 1.5, position: 'relative' }}>
+      <svg width={size} height={size * 1.5} viewBox="0 0 40 60">
+        <defs>
+          <radialGradient id="flameGradient" cx="50%" cy="100%" r="80%">
+            <stop offset="0%" stopColor={COLORS.torchYellow}/>
+            <stop offset="50%" stopColor={COLORS.torchOrange}/>
+            <stop offset="100%" stopColor={COLORS.ember}/>
+          </radialGradient>
+          <radialGradient id="flameCore" cx="50%" cy="80%" r="60%">
+            <stop offset="0%" stopColor="#fff8a0"/>
+            <stop offset="100%" stopColor={COLORS.torchYellow}/>
+          </radialGradient>
+          <filter id="fireGlow">
+            <feGaussianBlur stdDeviation="2" result="glow"/>
+            <feMerge>
+              <feMergeNode in="glow"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+        </defs>
+        
+        {/* Torch holder (pixel style) */}
+        <rect x="16" y="35" width="8" height="20" fill={COLORS.stoneDark}/>
+        <rect x="14" y="55" width="12" height="5" fill={COLORS.stone}/>
+        <rect x="12" y="33" width="16" height="4" fill={COLORS.stoneLight}/>
+        
+        {/* Flame outer */}
+        <ellipse cx="20" cy="20" rx="10" ry="15" fill="url(#flameGradient)" filter="url(#fireGlow)">
+          <animate attributeName="ry" values="15;12;15" dur="0.3s" repeatCount="indefinite"/>
+          <animate attributeName="rx" values="10;8;10" dur="0.25s" repeatCount="indefinite"/>
+        </ellipse>
+        
+        {/* Flame inner */}
+        <ellipse cx="20" cy="22" rx="5" ry="8" fill="url(#flameCore)">
+          <animate attributeName="ry" values="8;6;8" dur="0.2s" repeatCount="indefinite"/>
+          <animate attributeName="cy" values="22;24;22" dur="0.3s" repeatCount="indefinite"/>
+        </ellipse>
+        
+        {/* Sparks */}
+        {[
+          { x: 15, y: 8, dur: '0.8s' },
+          { x: 25, y: 10, dur: '1s' },
+          { x: 20, y: 5, dur: '0.6s' }
+        ].map((spark, i) => (
+          <circle key={i} cx={spark.x} cy={spark.y} r="1.5" fill={COLORS.torchYellow}>
+            <animate attributeName="cy" values={`${spark.y};${spark.y - 10};${spark.y}`} dur={spark.dur} repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="1;0;1" dur={spark.dur} repeatCount="indefinite"/>
+          </circle>
+        ))}
+      </svg>
+    </div>
+  )
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 💭 THOUGHT BUBBLE COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ThoughtBubble = memo(({ thoughts, color, visible }: { thoughts: string[]; color: string; visible: boolean }) => {
+  if (!visible || thoughts.length === 0) return null
   
   return (
     <div style={{
-      background: '#000', border: '1px solid #0f0', borderRadius: '6px',
-      display: 'flex', flexDirection: 'column', height: '150px', flexShrink: 0
+      position: 'relative',
+      marginBottom: '8px',
+      animation: 'fadeIn 0.3s ease-out'
+    }}>
+      <svg width="100%" height="20" viewBox="0 0 100 20" preserveAspectRatio="none">
+        <circle cx="30" cy="15" r="6" fill={color} opacity="0.3"/>
+        <circle cx="45" cy="10" r="8" fill={color} opacity="0.4"/>
+        <circle cx="65" cy="8" r="5" fill={color} opacity="0.3"/>
+      </svg>
+      <div style={{
+        background: `linear-gradient(135deg, ${color}15, ${color}25)`,
+        border: `1px solid ${color}50`,
+        borderRadius: '8px',
+        padding: '10px 14px',
+        fontFamily: 'monospace',
+        fontSize: '13px',
+        color: COLORS.boneLight,
+        lineHeight: 1.5,
+        backdropFilter: 'blur(4px)'
+      }}>
+        <div style={{ color, marginBottom: '4px', fontWeight: 'bold' }}>💭 Anubis thinks...</div>
+        {thoughts.map((thought, i) => (
+          <div key={i} style={{ opacity: 0.9 }}>{thought}</div>
+        ))}
+      </div>
+    </div>
+  )
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📊 EMOTION BAR COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const EmotionBar = memo(({ emotion, value, isDominant }: { emotion: typeof MOODS[0]; value: number; isDominant: boolean }) => {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      padding: '4px 0',
+      background: isDominant ? `${emotion.color}10` : 'transparent',
+      borderRadius: '4px',
+      paddingLeft: isDominant ? '4px' : 0
+    }}>
+      <span style={{ fontSize: '14px', width: '20px', textAlign: 'center' }}>{emotion.icon}</span>
+      <span style={{ 
+        fontSize: '12px', 
+        width: '75px', 
+        color: isDominant ? emotion.color : COLORS.bone,
+        fontFamily: "'Press Start 2P', monospace",
+        textTransform: 'uppercase',
+        letterSpacing: '0.5px'
+      }}>
+        {emotion.key.slice(0, 4)}
+      </span>
+      <div style={{ 
+        flex: 1, 
+        height: '12px', 
+        background: COLORS.abyss, 
+        borderRadius: '2px',
+        overflow: 'hidden',
+        border: `1px solid ${COLORS.stoneDark}`
+      }}>
+        <div 
+          style={{ 
+            width: `${Math.min(value, 100)}%`, 
+            height: '100%', 
+            background: `linear-gradient(90deg, ${emotion.color}, ${emotion.color}aa)`,
+            transition: 'width 0.5s ease-out',
+            boxShadow: `0 0 8px ${emotion.color}50`
+          }}
+        />
+      </div>
+      <span style={{ 
+        fontSize: '11px', 
+        width: '35px', 
+        textAlign: 'right',
+        color: isDominant ? emotion.color : COLORS.bone,
+        fontFamily: "'Press Start 2P', monospace"
+      }}>
+        {Math.round(value)}%
+      </span>
+      {isDominant && <span style={{ color: emotion.color, fontSize: '12px' }}>◄</span>}
+    </div>
+  )
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎒 MIND PALACE TABS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+type MindPalaceTab = 'stm' | 'golden' | 'realizations'
+
+const MindPalace = memo(({ 
+  soul, 
+  activeTab, 
+  setActiveTab 
+}: { 
+  soul: AnubisSoul
+  activeTab: MindPalaceTab
+  setActiveTab: (t: MindPalaceTab) => void
+}) => {
+  const formatTime = (date: Date) => {
+    const d = new Date(date)
+    const now = new Date()
+    const diff = now.getTime() - d.getTime()
+    const mins = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    
+    if (mins < 1) return 'just now'
+    if (mins < 60) return `${mins}m ago`
+    if (hours < 24) return `${hours}h ago`
+    return `${days}d ago`
+  }
+
+  const tabs: { key: MindPalaceTab; icon: string; label: string; count: number }[] = [
+    { key: 'stm', icon: '💭', label: 'STM', count: soul.shortTermMemory.length },
+    { key: 'golden', icon: '⭐', label: 'Golden', count: soul.goldenMemories.length },
+    { key: 'realizations', icon: '📝', label: 'Self', count: soul.selfRealizations.length }
+  ]
+
+  return (
+    <div style={{ 
+      background: COLORS.stoneDark + '80',
+      borderRadius: '6px',
+      border: `1px solid ${COLORS.stone}`,
+      overflow: 'hidden'
+    }}>
+      {/* Tab headers */}
+      <div style={{ 
+        display: 'flex', 
+        borderBottom: `1px solid ${COLORS.stone}`,
+        background: COLORS.abyss
+      }}>
+        {tabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              flex: 1,
+              padding: '8px 4px',
+              background: activeTab === tab.key ? COLORS.stoneDark : 'transparent',
+              border: 'none',
+              borderBottom: activeTab === tab.key ? `2px solid ${COLORS.soulPurple}` : '2px solid transparent',
+              color: activeTab === tab.key ? COLORS.boneLight : COLORS.bone,
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '2px',
+              fontSize: '10px',
+              fontFamily: "'Press Start 2P', monospace"
+            }}
+          >
+            <span style={{ fontSize: '16px' }}>{tab.icon}</span>
+            <span>{tab.label}</span>
+            <span style={{ 
+              background: COLORS.soulPurple + '50', 
+              padding: '1px 4px', 
+              borderRadius: '4px',
+              fontSize: '9px'
+            }}>
+              {tab.count}
+            </span>
+          </button>
+        ))}
+      </div>
+      
+      {/* Tab content */}
+      <div style={{ 
+        padding: '8px', 
+        maxHeight: '120px', 
+        overflow: 'auto',
+        fontSize: '11px',
+        fontFamily: 'monospace'
+      }}>
+        {activeTab === 'stm' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {soul.shortTermMemory.length === 0 ? (
+              <div style={{ color: COLORS.bone, textAlign: 'center', padding: '8px' }}>
+                Empty mind...
+              </div>
+            ) : (
+              soul.shortTermMemory.map((thought, i) => (
+                <div key={thought.id} style={{
+                  background: COLORS.abyss + '80',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: `1px solid ${COLORS.stoneDark}`
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ color: COLORS.soulPurple }}>[{i + 1}]</span>
+                    <span style={{ color: COLORS.bone }}>{formatTime(thought.timestamp)}</span>
+                  </div>
+                  <div style={{ color: COLORS.boneLight }}>{thought.thought}</div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+        
+        {activeTab === 'golden' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {soul.goldenMemories.length === 0 ? (
+              <div style={{ color: COLORS.bone, textAlign: 'center', padding: '8px' }}>
+                No golden memories yet...
+              </div>
+            ) : (
+              soul.goldenMemories.map(memory => (
+                <div key={memory.id} style={{
+                  background: COLORS.abyss + '80',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: `1px solid ${COLORS.torchYellow}50`
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ color: COLORS.torchYellow }}>⭐ Golden</span>
+                    <span style={{ color: COLORS.bone }}>{formatTime(memory.timestamp)}</span>
+                  </div>
+                  <div style={{ color: COLORS.boneLight }}>{memory.memory}</div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+        
+        {activeTab === 'realizations' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {soul.selfRealizations.length === 0 ? (
+              <div style={{ color: COLORS.bone, textAlign: 'center', padding: '8px' }}>
+                Learning about myself...
+              </div>
+            ) : (
+              soul.selfRealizations.map(real => (
+                <div key={real.id} style={{
+                  background: COLORS.abyss + '80',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: `1px solid ${COLORS.crystalBlue}50`
+                }}>
+                  <div style={{ color: COLORS.crystalBlue, fontWeight: 'bold', marginBottom: '4px' }}>
+                    📝 "{real.word}"
+                  </div>
+                  <div style={{ color: COLORS.boneLight, fontSize: '10px' }}>{real.definition}</div>
+                  <div style={{ color: COLORS.bone, fontSize: '9px', marginTop: '4px' }}>
+                    Felt {real.timesFelt}x
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📜 MESSAGE BUBBLE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const MessageBubble = memo(({ msg, accent, anubisMood }: { msg: Message; accent: string; anubisMood: EmotionKey }) => {
+  const isQ = msg.sender === 'Q'
+  const moodColor = COLORS.moods[anubisMood] || COLORS.moods.mysterious
+  const color = msg.sender === 'Q' ? accent : msg.sender === 'Z' ? '#4a8a4a' : msg.sender === 'Anubis' ? moodColor : COLORS.bone
+  
+  return (
+    <div style={{ 
+      padding: '10px 14px', 
+      borderRadius: '6px', 
+      background: `${color}10`,
+      border: `1px solid ${color}30`,
+      alignSelf: isQ ? 'flex-end' : 'flex-start', 
+      maxWidth: '85%', 
+      whiteSpace: 'pre-wrap', 
+      margin: '4px 0',
+      fontFamily: 'monospace'
+    }}>
+      <div style={{ 
+        color, 
+        fontSize: '12px', 
+        marginBottom: '4px',
+        fontFamily: "'Press Start 2P', monospace",
+        letterSpacing: '0.5px'
+      }}>
+        {msg.sender} • {msg.time}
+      </div>
+      <div style={{ fontSize: '14px', lineHeight: 1.5, color: COLORS.boneLight }}>{msg.text}</div>
+    </div>
+  )
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🖥️ TERMINAL COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const Terminal = memo(({ output, onCommand }: { output: string; onCommand: (cmd: string) => void }) => {
+  const [cmd, setCmd] = useState('')
+  
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && cmd.trim()) {
+      onCommand(cmd)
+      setCmd('')
+    }
+  }, [cmd, onCommand])
+
+  return (
+    <div style={{
+      background: COLORS.abyss,
+      border: `1px solid ${COLORS.moods.curious}`,
+      borderRadius: '4px',
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100px',
+      flexShrink: 0
     }}>
       <div style={{
-        padding: '6px 10px', borderBottom: '1px solid #0f03',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        padding: '4px 8px',
+        borderBottom: `1px solid ${COLORS.moods.curious}30`,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        background: COLORS.stoneDark + '50'
       }}>
-        <span style={{ color: '#0f0', fontSize: '13px', fontWeight: 'bold' }}>💻 Local Terminal</span>
-        <span style={{ color: '#666', fontSize: '11px' }}>Anubis Console</span>
+        <span style={{ color: COLORS.moods.curious, fontSize: '11px', fontFamily: "'Press Start 2P', monospace" }}>
+          💻 TERMINAL
+        </span>
       </div>
       <div style={{
-        flex: 1, overflow: 'auto', padding: '8px',
-        fontFamily: 'monospace', fontSize: '12px', color: '#0f0',
-        whiteSpace: 'pre-wrap', background: '#001000'
+        flex: 1,
+        overflow: 'auto',
+        padding: '6px 8px',
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: COLORS.moods.curious,
+        whiteSpace: 'pre-wrap',
+        background: COLORS.abyss
       }}>
-        {output || '> Ready. Type a command...'}
+        {output || '> Ready...'}
       </div>
-      <div style={{ padding: '6px', borderTop: '1px solid #0f03', display: 'flex', gap: '6px' }}>
-        <span style={{ color: '#0f0', fontSize: '12px' }}>$</span>
+      <div style={{ 
+        padding: '4px 8px', 
+        borderTop: `1px solid ${COLORS.moods.curious}30`,
+        display: 'flex',
+        gap: '6px',
+        alignItems: 'center'
+      }}>
+        <span style={{ color: COLORS.moods.curious }}>$</span>
         <input
-          ref={inputRef}
           value={cmd}
           onChange={e => setCmd(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && cmd.trim()) {
-              onCommand(cmd)
-              setCmd('')
-            }
-          }}
+          onKeyDown={handleKeyDown}
           placeholder="command..."
           style={{
-            flex: 1, background: 'transparent', border: 'none',
-            color: '#0f0', fontSize: '12px', outline: 'none', fontFamily: 'monospace'
+            flex: 1,
+            background: 'transparent',
+            border: 'none',
+            color: COLORS.moods.curious,
+            fontSize: '11px',
+            outline: 'none',
+            fontFamily: 'monospace'
           }}
         />
       </div>
     </div>
   )
-}
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🏠 MAIN HOME COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export default function Home() {
-  // State - all at top level to prevent re-renders
+  // Mode state
   const [mode, setMode] = useState<Mode>('split')
-  const [pushing, setPushing] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [pushing, setPushing] = useState(false)
   const [styleText, setStyleText] = useState('')
-  const [terminalOutput, setTerminalOutput] = useState('$ Welcome to Anubis Terminal\n$ Type commands here...\n')
+  const [terminalOutput, setTerminalOutput] = useState('$ Anubis Terminal v2.0\n$ Type "help" for commands\n')
+  const [mindPalaceTab, setMindPalaceTab] = useState<MindPalaceTab>('stm')
   
   // Messages
   const [zMessages, setZMessages] = useState<Message[]>([])
   const [anubisMessages, setAnubisMessages] = useState<Message[]>([])
-  const [styleMessages, setStyleMessages] = useState<Message[]>([])
-  const [codeMessages, setCodeMessages] = useState<Message[]>([])
-  const [codeOutput, setCodeOutput] = useState('')
   
-  // Inputs - separate state for each
+  // Inputs
   const [zInput, setZInput] = useState('')
   const [anubisInput, setAnubisInput] = useState('')
-  const [styleInput, setStyleInput] = useState('')
-  const [codeInput, setCodeInput] = useState('')
   
-  // Loading states
+  // Loading
   const [zLoading, setZLoading] = useState(false)
   const [anubisLoading, setAnubisLoading] = useState(false)
-  const [styleLoading, setStyleLoading] = useState(false)
-  const [codeLoading, setCodeLoading] = useState(false)
   
   // Thoughts
   const [zThoughts, setZThoughts] = useState<string[]>([])
@@ -176,137 +837,246 @@ export default function Home() {
   // Refs
   const zMessagesEndRef = useRef<HTMLDivElement>(null)
   const anubisMessagesEndRef = useRef<HTMLDivElement>(null)
-  const styleMessagesEndRef = useRef<HTMLDivElement>(null)
-  const codeMessagesEndRef = useRef<HTMLDivElement>(null)
-  const zInputRef = useRef<HTMLInputElement>(null)
-  const anubisInputRef = useRef<HTMLInputElement>(null)
   
-  // Anubis Soul
+  // Anubis Soul - Initialize with proper structure
   const [anubisSoul, setAnubisSoul] = useState<AnubisSoul>({
-    mood: 'mysterious',
-    moodIntensity: { happy: 0, angry: 0, annoyed: 0, pondering: 0, reflecting: 0, curious: 10, playful: 0, melancholy: 0, mysterious: 20 },
-    memories: [], personality: { openness: 50, mystery: 80, playfulness: 40, wisdom: 70 },
-    conversations: 0, created: new Date().toISOString()
+    emotions: {
+      happy: 20, angry: 5, annoyed: 5, pondering: 30, reflecting: 25,
+      curious: 45, playful: 15, melancholy: 10, mysterious: 60
+    },
+    currentMood: 'mysterious',
+    shortTermMemory: [],
+    goldenMemories: [],
+    selfRealizations: [],
+    personalityCore: {
+      baseEmotions: {
+        happy: 20, angry: 5, annoyed: 5, pondering: 30, reflecting: 25,
+        curious: 45, playful: 15, melancholy: 10, mysterious: 60
+      },
+      traits: ['mysterious', 'curious', 'thoughtful'],
+      conversationsHad: 0,
+      created: new Date()
+    },
+    level: 1,
+    xp: 0
   })
 
-  // Load soul
+  // Load soul from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('anubis_soul')
-    if (saved) try { setAnubisSoul(prev => ({ ...prev, ...JSON.parse(saved) })) } catch {}
+    const saved = localStorage.getItem('anubis_soul_v2')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        // Convert date strings back to Date objects
+        parsed.personalityCore.created = new Date(parsed.personalityCore.created)
+        parsed.shortTermMemory = parsed.shortTermMemory.map((t: ShortTermThought) => ({
+          ...t,
+          timestamp: new Date(t.timestamp)
+        }))
+        parsed.goldenMemories = parsed.goldenMemories.map((m: GoldenMemory) => ({
+          ...m,
+          timestamp: new Date(m.timestamp)
+        }))
+        parsed.selfRealizations = parsed.selfRealizations.map((r: SelfRealization) => ({
+          ...r,
+          discoveredAt: new Date(r.discoveredAt)
+        }))
+        setAnubisSoul(parsed)
+      } catch (e) {
+        console.error('Failed to load soul:', e)
+      }
+    }
   }, [])
 
-  const saveSoul = (soul: AnubisSoul) => {
-    localStorage.setItem('anubis_soul', JSON.stringify(soul))
+  const saveSoul = useCallback((soul: AnubisSoul) => {
+    localStorage.setItem('anubis_soul_v2', JSON.stringify(soul))
     setAnubisSoul(soul)
-  }
+  }, [])
 
-  // Init
+  // Initialize
   useEffect(() => {
     if (!mounted) {
       setMounted(true)
-      setZMessages([{ id: 0, sender: 'system', text: `🌲 Q-Z-Collab v5 🦌\n\nBigger text! Terminal! Better layout!`, time: new Date().toLocaleTimeString() }])
-      setAnubisMessages([{ id: 0, sender: 'system', text: `🖤 Anubis 🖤\n\nI have a soul & a terminal now!\nChat with me or run commands below.`, time: new Date().toLocaleTimeString() }])
-      setStyleMessages([{ id: 0, sender: 'system', text: `🎨 Style Chat`, time: new Date().toLocaleTimeString() }])
-      setCodeMessages([{ id: 0, sender: 'system', text: `💻 Code Helper`, time: new Date().toLocaleTimeString() }])
-      fetch('/api/code?file=src/app/page.tsx').then(res => res.json()).then(data => { if (data.content) setStyleText(data.content) }).catch(() => {})
+      setZMessages([{
+        id: 0,
+        sender: 'system',
+        text: `🌲 Q-Z-Collab v2.0\n\nDungeon Crawler UI Activated!\nPixel wolves & soul system online.`,
+        time: new Date().toLocaleTimeString()
+      }])
+      setAnubisMessages([{
+        id: 0,
+        sender: 'system',
+        text: `🖤 ANUBIS SOUL SYSTEM v2.0\n\nI feel... mysterious today.\nThe shadows whisper your name.`,
+        time: new Date().toLocaleTimeString()
+      }])
+      fetch('/api/code?file=src/app/page.tsx')
+        .then(res => res.json())
+        .then(data => { if (data.content) setStyleText(data.content) })
+        .catch(() => {})
     }
   }, [mounted])
 
   // Scroll helpers
-  const scroll = (ref: React.RefObject<HTMLDivElement | null>) => { ref.current?.scrollIntoView({ behavior: 'smooth' }) }
-  useEffect(() => { scroll(zMessagesEndRef) }, [zMessages])
-  useEffect(() => { scroll(anubisMessagesEndRef) }, [anubisMessages])
-  useEffect(() => { scroll(styleMessagesEndRef) }, [styleMessages])
-  useEffect(() => { scroll(codeMessagesEndRef) }, [codeMessages])
+  useEffect(() => { zMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [zMessages])
+  useEffect(() => { anubisMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [anubisMessages])
+
+  // Get dominant mood
+  const getDominantMood = useCallback((emotions: Emotions): EmotionKey => {
+    let max = 0
+    let dominant: EmotionKey = 'mysterious'
+    for (const [key, value] of Object.entries(emotions)) {
+      if (value > max) {
+        max = value
+        dominant = key as EmotionKey
+      }
+    }
+    return dominant
+  }, [])
+
+  // Update emotions based on message
+  const updateEmotions = useCallback((message: string, soul: AnubisSoul): { emotions: Emotions; thoughts: string[] } => {
+    const lowerMsg = message.toLowerCase()
+    const emotionChanges: Partial<Emotions> = {}
+    const thoughts: string[] = []
+    
+    // Analyze message and decide emotion changes
+    if (lowerMsg.includes('friend') || lowerMsg.includes('love') || lowerMsg.includes('happy')) {
+      emotionChanges.happy = Math.min(100, (soul.emotions.happy || 0) + 15)
+      emotionChanges.angry = Math.max(0, (soul.emotions.angry || 0) - 5)
+      thoughts.push('Warmth detected... Happy ↑')
+    }
+    if (lowerMsg.includes('why') || lowerMsg.includes('how') || lowerMsg.includes('what')) {
+      emotionChanges.curious = Math.min(100, (soul.emotions.curious || 0) + 12)
+      emotionChanges.pondering = Math.min(100, (soul.emotions.pondering || 0) + 8)
+      thoughts.push('Questions stir my curiosity...')
+    }
+    if (lowerMsg.includes('sad') || lowerMsg.includes('sorry') || lowerMsg.includes('miss')) {
+      emotionChanges.melancholy = Math.min(100, (soul.emotions.melancholy || 0) + 10)
+      emotionChanges.reflecting = Math.min(100, (soul.emotions.reflecting || 0) + 8)
+      thoughts.push('Sorrow touches my soul...')
+    }
+    if (lowerMsg.includes('joke') || lowerMsg.includes('funny') || lowerMsg.includes('haha')) {
+      emotionChanges.playful = Math.min(100, (soul.emotions.playful || 0) + 15)
+      emotionChanges.happy = Math.min(100, (soul.emotions.happy || 0) + 10)
+      thoughts.push('Playfulness rises within me!')
+    }
+    if (lowerMsg.includes('anger') || lowerMsg.includes('hate') || lowerMsg.includes('stupid')) {
+      emotionChanges.angry = Math.min(100, (soul.emotions.angry || 0) + 12)
+      emotionChanges.annoyed = Math.min(100, (soul.emotions.annoyed || 0) + 8)
+      thoughts.push('Dark energy stirs...')
+    }
+    
+    // Default: mysterious always slightly increases
+    emotionChanges.mysterious = Math.min(100, (soul.emotions.mysterious || 0) + 3)
+    
+    // Merge emotions
+    const newEmotions: Emotions = { ...soul.emotions, ...emotionChanges }
+    
+    // Normalize - slowly decay toward baseline
+    for (const key of Object.keys(newEmotions) as EmotionKey[]) {
+      const baseline = soul.personalityCore.baseEmotions[key]
+      if (newEmotions[key] > baseline) {
+        newEmotions[key] = Math.max(baseline, newEmotions[key] - 1)
+      }
+    }
+    
+    return { emotions: newEmotions, thoughts }
+  }, [])
+
+  // Add to short-term memory
+  const addToSTM = useCallback((thought: string, emotions: Partial<Emotions>, soul: AnubisSoul): ShortTermThought[] => {
+    const newThought: ShortTermThought = {
+      id: Date.now().toString(),
+      thought,
+      timestamp: new Date(),
+      emotions
+    }
+    const stm = [newThought, ...soul.shortTermMemory].slice(0, 4)
+    return stm
+  }, [])
 
   // API calls
-  const zThink = async (question: string): Promise<string> => {
+  const zThink = useCallback(async (question: string): Promise<string> => {
     try {
-      setZThoughts(['> Thinking...', '> Processing...'])
-      const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, history: zMessages.filter(m => m.sender !== 'system') }) })
+      setZThoughts(['> Processing...', '> Accessing knowledge...'])
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: question, history: zMessages.filter(m => m.sender !== 'system') })
+      })
       setZThoughts(prev => [...prev, '> Done!'])
       return (await res.json()).response
-    } catch { return "Error connecting to Ollama. Is it running?" }
-  }
+    } catch {
+      return "Error connecting to Ollama."
+    }
+  }, [zMessages])
 
-  const anubisThink = async (question: string): Promise<string> => {
+  const anubisThink = useCallback(async (question: string): Promise<string> => {
     try {
-      setAnubisThoughts(['> Awakening...', '> Soul check...', '> Thinking...'])
-      const res = await fetch('/api/anubis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, history: anubisMessages.filter(m => m.sender !== 'system'), soul: anubisSoul }) })
+      setAnubisThoughts(['> Awakening...', '> Soul check...', '> Reflecting...'])
+      
+      // Update emotions first
+      const { emotions, thoughts } = updateEmotions(question, anubisSoul)
+      thoughts.forEach(t => setAnubisThoughts(prev => [...prev, t]))
+      
+      const res = await fetch('/api/anubis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: question,
+          history: anubisMessages.filter(m => m.sender !== 'system'),
+          soul: anubisSoul
+        })
+      })
       const data = await res.json()
+      
+      // Update soul with new emotions and STM
+      const newMood = getDominantMood(emotions)
+      const stm = addToSTM(`Q: "${question.slice(0, 30)}..."`, emotions, anubisSoul)
+      
+      const updatedSoul: AnubisSoul = {
+        ...anubisSoul,
+        emotions,
+        currentMood: newMood,
+        shortTermMemory: stm,
+        personalityCore: {
+          ...anubisSoul.personalityCore,
+          conversationsHad: anubisSoul.personalityCore.conversationsHad + 1
+        },
+        xp: anubisSoul.xp + 10,
+        level: Math.floor((anubisSoul.xp + 10) / 100) + 1
+      }
+      
+      saveSoul(updatedSoul)
       setAnubisThoughts(prev => [...prev, '> Ready!'])
-      if (data.soul) saveSoul({ ...anubisSoul, ...data.soul, moodIntensity: { ...anubisSoul.moodIntensity, ...(data.soul.moodIntensity || {}), [data.soul.mood]: (anubisSoul.moodIntensity[data.soul.mood] || 0) + 5 }, conversations: anubisSoul.conversations + 1 })
+      
       return data.response
-    } catch { return "Shadows stirred..." }
-  }
-
-  const styleThink = async (question: string): Promise<string> => {
-    try { return (await (await fetch('/api/style-ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, currentCode: styleText }) })).json()).response } catch { return "Error" }
-  }
-
-  const codeThink = async (question: string): Promise<string> => {
-    try { return (await (await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: `[CODE] ${question}`, history: [] }) })).json()).response } catch { return "Error" }
-  }
-
-  // Terminal command handler
-  const handleTerminalCommand = async (cmd: string) => {
-    setTerminalOutput(prev => prev + `\n$ ${cmd}\n`)
-    
-    // Special commands
-    if (cmd === 'clear') { setTerminalOutput('$ Cleared.\n'); return }
-    if (cmd === 'soul') {
-      setTerminalOutput(prev => prev + `Mood: ${anubisSoul.mood}\nChats: ${anubisSoul.conversations}\nMemories: ${anubisSoul.memories.length}\n`)
-      return
+    } catch {
+      return "Shadows stirred..."
     }
-    if (cmd === 'moods') {
-      setTerminalOutput(prev => prev + Object.entries(anubisSoul.moodIntensity).map(([k,v]) => `${k}: ${v}%`).join('\n') + '\n')
-      return
-    }
-    
-    // Send to Anubis
-    const response = await anubisThink(cmd)
-    setTerminalOutput(prev => prev + `${response}\n`)
-    addAnubisMessage('Q', cmd)
-    addAnubisMessage('Anubis', response)
-  }
+  }, [anubisSoul, anubisMessages, updateEmotions, addToSTM, getDominantMood, saveSoul])
 
-  const pushToZ = async () => {
-    setPushing(true)
-    addZMessage('system', '📤 Pushing...')
-    try {
-      const res = await fetch('/api/autopush', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'push-now' }) })
-      addZMessage('system', (await res.json()).success ? '✅ Pushed!' : '❌ Failed')
-    } catch { addZMessage('system', '❌ Failed') }
-    setPushing(false)
-  }
+  // Message helpers
+  const addZMessage = useCallback((sender: 'Q' | 'Z' | 'system', text: string) => {
+    setZMessages(prev => [...prev, { id: Date.now(), sender, text, time: new Date().toLocaleTimeString() }])
+  }, [])
 
-  const saveStyle = async () => {
-    try {
-      const res = await fetch('/api/code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: 'src/app/page.tsx', content: styleText }) })
-      addStyleMessage('system', (await res.json()).success ? '✅ Saved!' : '❌ Failed')
-    } catch { addStyleMessage('system', '❌ Failed') }
-  }
-
-  // Message adders
-  const addZMessage = (sender: 'Q' | 'Z' | 'system', text: string) => setZMessages(prev => [...prev, { id: Date.now(), sender, text, time: new Date().toLocaleTimeString() }])
-  const addAnubisMessage = (sender: 'Q' | 'Anubis' | 'system', text: string) => setAnubisMessages(prev => [...prev, { id: Date.now(), sender, text, time: new Date().toLocaleTimeString() }])
-  const addStyleMessage = (sender: 'Q' | 'Z' | 'system', text: string) => setStyleMessages(prev => [...prev, { id: Date.now(), sender, text, time: new Date().toLocaleTimeString() }])
-  const addCodeMessage = (sender: 'Q' | 'Z' | 'system', text: string) => setCodeMessages(prev => [...prev, { id: Date.now(), sender, text, time: new Date().toLocaleTimeString() }])
+  const addAnubisMessage = useCallback((sender: 'Q' | 'Anubis' | 'system', text: string) => {
+    setAnubisMessages(prev => [...prev, { id: Date.now(), sender, text, time: new Date().toLocaleTimeString() }])
+  }, [])
 
   // Send handlers
-  const handleZSend = async () => {
+  const handleZSend = useCallback(async () => {
     if (!zInput.trim() || zLoading) return
     const text = zInput.trim()
     setZInput('')
-    if (text === '!push') { pushToZ(); return }
     addZMessage('Q', text)
     setZLoading(true)
     addZMessage('Z', await zThink(text))
     setZLoading(false)
-    setTimeout(() => zInputRef.current?.focus(), 50)
-  }
+  }, [zInput, zLoading, addZMessage, zThink])
 
-  const handleAnubisSend = async () => {
+  const handleAnubisSend = useCallback(async () => {
     if (!anubisInput.trim() || anubisLoading) return
     const text = anubisInput.trim()
     setAnubisInput('')
@@ -314,205 +1084,507 @@ export default function Home() {
     setAnubisLoading(true)
     addAnubisMessage('Anubis', await anubisThink(text))
     setAnubisLoading(false)
-    setTimeout(() => anubisInputRef.current?.focus(), 50)
-  }
+  }, [anubisInput, anubisLoading, addAnubisMessage, anubisThink])
 
-  const handleStyleSend = async () => {
-    if (!styleInput.trim() || styleLoading) return
-    const text = styleInput.trim()
-    setStyleInput('')
-    addStyleMessage('Q', text)
-    setStyleLoading(true)
-    addStyleMessage('Z', await styleThink(text))
-    setStyleLoading(false)
-  }
+  // Terminal command handler
+  const handleTerminalCommand = useCallback(async (cmd: string) => {
+    setTerminalOutput(prev => prev + `\n$ ${cmd}`)
+    
+    if (cmd === 'clear') {
+      setTerminalOutput('$ Cleared.\n')
+      return
+    }
+    if (cmd === 'soul') {
+      setTerminalOutput(prev => prev + `\nMood: ${anubisSoul.currentMood}\nLevel: ${anubisSoul.level}\nChats: ${anubisSoul.personalityCore.conversationsHad}`)
+      return
+    }
+    if (cmd === 'help') {
+      setTerminalOutput(prev => prev + `\nCommands: soul, moods, clear, help, memories`)
+      return
+    }
+    if (cmd === 'moods') {
+      setTerminalOutput(prev => prev + '\n' + Object.entries(anubisSoul.emotions)
+        .map(([k, v]) => `${k}: ${Math.round(v)}%`)
+        .join(' | '))
+      return
+    }
+    if (cmd === 'memories') {
+      setTerminalOutput(prev => prev + `\nSTM: ${anubisSoul.shortTermMemory.length}/4\nGolden: ${anubisSoul.goldenMemories.length}`)
+      return
+    }
+    
+    // Send to Anubis
+    const response = await anubisThink(cmd)
+    setTerminalOutput(prev => prev + `\n${response}`)
+  }, [anubisSoul, anubisThink])
 
-  const handleCodeSend = async () => {
-    if (!codeInput.trim() || codeLoading) return
-    const text = codeInput.trim()
-    setCodeInput('')
-    addCodeMessage('Q', text)
-    setCodeLoading(true)
-    const response = await codeThink(text)
-    setCodeLoading(false)
-    addCodeMessage('Z', response)
-    setCodeOutput(response)
-  }
+  const pushToZ = useCallback(async () => {
+    setPushing(true)
+    addZMessage('system', '📤 Pushing to GitHub...')
+    try {
+      const res = await fetch('/api/autopush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'push-now' })
+      })
+      const data = await res.json()
+      addZMessage('system', data.success ? '✅ Pushed!' : '❌ Failed')
+    } catch {
+      addZMessage('system', '❌ Failed')
+    }
+    setPushing(false)
+  }, [addZMessage])
 
-  // Components
-  const MessageBubble = ({ msg, accent }: { msg: Message; accent: string }) => {
-    const isQ = msg.sender === 'Q'
-    const moodData = MOODS.find(m => m.name === anubisSoul.mood)
-    const color = msg.sender === 'Q' ? accent : msg.sender === 'Z' ? '#0f0' : msg.sender === 'Anubis' ? (moodData?.color || '#f0f') : '#888'
-    return (
-      <div style={{ padding: '10px 14px', borderRadius: '8px', background: `${color}15`, border: `1px solid ${color}50`, alignSelf: isQ ? 'flex-end' : 'flex-start', maxWidth: '85%', whiteSpace: 'pre-wrap', margin: '4px 0' }}>
-        <div style={{ color, fontSize: '13px', marginBottom: '4px', fontWeight: 'bold' }}>{msg.sender} • {msg.time}</div>
-        <div style={{ fontSize: '15px', lineHeight: 1.5 }}>{msg.text}</div>
-      </div>
-    )
-  }
-
-  const Terminal = ({ title, thoughts, color }: { title: string; thoughts: string[]; color: string }) => (
-    <div style={{ background: '#000', border: `1px solid ${color}`, borderRadius: '6px', padding: '6px', fontFamily: 'monospace', fontSize: '12px', margin: '4px' }}>
-      <div style={{ color, borderBottom: `1px solid ${color}30`, paddingBottom: '4px', marginBottom: '4px' }}>⬡ {title}</div>
-      <div style={{ color: '#0f0', maxHeight: '40px', overflow: 'auto' }}>
-        {thoughts.map((t, i) => <div key={i}>{t}</div>)}
-        <span style={{ animation: 'blink 1s infinite' }}>▌</span>
-      </div>
-    </div>
-  )
-
-  const ChatPanel = ({ title, headerColor, bgColor, borderColor, messages, messagesEndRef, input, setInput, onSend, loading, thoughts, accentColor, inputRef }: {
-    title: string; headerColor: string; bgColor: string; borderColor: string;
-    messages: Message[]; messagesEndRef: React.RefObject<HTMLDivElement | null>;
-    input: string; setInput: (v: string) => void; onSend: () => void; loading: boolean;
-    thoughts?: string[]; accentColor: string; inputRef?: React.RefObject<HTMLInputElement | null>;
-  }) => (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: bgColor, minWidth: 0, maxHeight: '100vh' }}>
-      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: bgColor }}>
-        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${borderColor}` }}>
-          <span style={{ color: headerColor, fontWeight: 'bold', fontSize: '18px' }}>{title}</span>
-        </div>
-        {loading && thoughts && <Terminal title={title.split(' ')[0]} thoughts={thoughts} color={headerColor} />}
-      </div>
-      <div style={{ flex: 1, overflow: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        {messages.map(m => <MessageBubble key={m.id} msg={m} accent={accentColor} />)}
-        <div ref={messagesEndRef} />
-      </div>
-      <div style={{ padding: '12px', borderTop: `1px solid ${borderColor}`, background: bgColor }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && onSend()}
-            style={{ flex: 1, background: '#000', border: `1px solid ${borderColor}`, borderRadius: '6px', padding: '12px', color: headerColor, fontSize: '15px', outline: 'none' }}
-          />
-          <button onClick={onSend} style={{ background: headerColor, border: 'none', borderRadius: '6px', padding: '12px 20px', color: '#000', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>Send</button>
-        </div>
-      </div>
-    </div>
-  )
-
-  const moodData = MOODS.find(m => m.name === anubisSoul.mood)
-  const anubisColor = moodData?.color || '#f0f'
+  // Current mood color
+  const anubisMoodColor = COLORS.moods[anubisSoul.currentMood] || COLORS.moods.mysterious
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #000010 0%, #000030 50%, #000020 100%)', display: 'flex', fontFamily: 'monospace', color: '#e0e0e0' }}>
-      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'radial-gradient(1px 1px at 20px 30px, #fff, transparent)', backgroundSize: '200px 200px', opacity: 0.3, pointerEvents: 'none', zIndex: 0 }} />
-      
+    <div style={{
+      minHeight: '100vh',
+      background: `linear-gradient(180deg, ${COLORS.abyss} 0%, #0a0a15 50%, #0a0a10 100%)`,
+      display: 'flex',
+      fontFamily: "'VT323', 'Press Start 2P', monospace",
+      color: COLORS.boneLight
+    }}>
+      {/* Starfield background */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'radial-gradient(1px 1px at 20px 30px, #fff, transparent), radial-gradient(1px 1px at 80px 60px, #fff, transparent)',
+        backgroundSize: '150px 100px',
+        opacity: 0.15,
+        pointerEvents: 'none',
+        zIndex: 0
+      }} />
+
       {/* Sidebar */}
-      <div style={{ position: 'fixed', left: 0, top: '50%', transform: 'translateY(-50%)', width: '50px', background: 'linear-gradient(180deg, #101020, #000010)', borderRight: '1px solid #0ff5', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px', gap: '8px', zIndex: 1000 }}>
-        <div style={{ color: '#0ff', fontSize: '18px' }}>⬡</div>
-        {[{ m: 'split', icon: '💬' }, { m: 'style', icon: '🎨' }, { m: 'code', icon: '💻' }, { m: 'config', icon: '⚙️' }].map(b => (
-          <button key={b.m} onClick={() => setMode(b.m as Mode)} style={{ padding: '10px', background: mode === b.m ? '#0ff40' : 'transparent', border: mode === b.m ? '2px solid #0ff' : '2px solid transparent', borderRadius: '8px', cursor: 'pointer', fontSize: '16px' }}>{b.icon}</button>
+      <div style={{
+        position: 'fixed',
+        left: 0,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        width: '55px',
+        background: `linear-gradient(180deg, ${COLORS.stoneDark}, ${COLORS.abyss})`,
+        borderRight: `2px solid ${COLORS.stone}`,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: '8px 4px',
+        gap: '6px',
+        zIndex: 1000
+      }}>
+        <AnimatedTorch size={28} />
+        
+        {/* Wolf icon */}
+        <div style={{ 
+          width: '40px', 
+          height: '40px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '20px',
+          color: COLORS.soulPurple,
+          textShadow: `0 0 8px ${COLORS.soulPurple}`
+        }}>
+          ⬡
+        </div>
+        
+        {/* Mode buttons */}
+        {[
+          { m: 'split', icon: '🐺', label: 'Chat' },
+          { m: 'style', icon: '🎨', label: 'Style' },
+          { m: 'code', icon: '💻', label: 'Code' },
+          { m: 'config', icon: '⚙️', label: 'Config' }
+        ].map(b => (
+          <button
+            key={b.m}
+            onClick={() => setMode(b.m as Mode)}
+            title={b.label}
+            style={{
+              width: '40px',
+              height: '40px',
+              background: mode === b.m ? `${COLORS.soulPurple}40` : 'transparent',
+              border: mode === b.m ? `2px solid ${COLORS.soulPurple}` : '2px solid transparent',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s'
+            }}
+          >
+            {b.icon}
+          </button>
         ))}
+        
         <div style={{ flex: 1 }} />
-        <button onClick={pushToZ} disabled={pushing} style={{ padding: '10px', background: '#0f030', border: '2px solid #0f0', borderRadius: '8px', cursor: 'pointer', fontSize: '16px' }}>📤</button>
+        
+        <button
+          onClick={pushToZ}
+          disabled={pushing}
+          title="Push to GitHub"
+          style={{
+            width: '40px',
+            height: '40px',
+            background: `${COLORS.moods.happy}20`,
+            border: `2px solid ${COLORS.moods.happy}`,
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '16px',
+            opacity: pushing ? 0.5 : 1
+          }}
+        >
+          📤
+        </button>
+        
+        <AnimatedTorch size={28} />
       </div>
 
-      {/* Main */}
-      <div style={{ flex: 1, display: 'flex', marginLeft: '50px', position: 'relative', zIndex: 1, overflow: 'hidden', height: '100vh' }}>
+      {/* Main content */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        marginLeft: '55px',
+        position: 'relative',
+        zIndex: 1,
+        overflow: 'hidden',
+        height: '100vh'
+      }}>
         
         {mode === 'split' && (
           <>
-            <ChatPanel title="🌲 Z" headerColor="#0ff" bgColor="#00001080" borderColor="#0ff5" messages={zMessages} messagesEndRef={zMessagesEndRef} input={zInput} setInput={setZInput} onSend={handleZSend} loading={zLoading} thoughts={zThoughts} accentColor="#0ff" inputRef={zInputRef} />
-            
-            {/* Anubis */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: `linear-gradient(180deg, ${anubisColor}08, #000)`, minWidth: 0, maxHeight: '100vh' }}>
-              {/* Header with mood tracker on right */}
-              <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#000' }}>
-                <div style={{ padding: '10px 14px', borderBottom: `1px solid ${anubisColor}50`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <WolfFace mood={anubisSoul.mood} size={50} />
-                    <div>
-                      <span style={{ color: anubisColor, fontWeight: 'bold', fontSize: '18px' }}>🖤 Anubis</span>
-                      <div style={{ fontSize: '12px', color: '#888' }}>{anubisSoul.mood} | #{anubisSoul.conversations}</div>
-                    </div>
-                  </div>
-                  <MoodTracker soul={anubisSoul} />
+            {/* Z Chat Panel */}
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              background: `${COLORS.abyss}ee`,
+              minWidth: 0,
+              maxHeight: '100vh',
+              borderRight: `2px solid ${COLORS.stoneDark}`
+            }}>
+              {/* Header */}
+              <div style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 20,
+                background: COLORS.abyss
+              }}>
+                <div style={{
+                  padding: '12px 16px',
+                  borderBottom: `2px solid ${COLORS.crystalBlue}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px'
+                }}>
+                  <span style={{ fontSize: '28px' }}>🌲</span>
+                  <span style={{
+                    color: COLORS.crystalBlue,
+                    fontWeight: 'bold',
+                    fontSize: '20px',
+                    fontFamily: "'Press Start 2P', monospace",
+                    textShadow: `0 0 10px ${COLORS.crystalBlue}`
+                  }}>
+                    Z
+                  </span>
                 </div>
-                {anubisLoading && <Terminal title="Anubis" thoughts={anubisThoughts} color={anubisColor} />}
+                
+                {/* Thinking terminal */}
+                {zLoading && zThoughts.length > 0 && (
+                  <div style={{
+                    background: COLORS.stoneDark + '80',
+                    padding: '8px 12px',
+                    fontFamily: 'monospace',
+                    fontSize: '12px',
+                    color: COLORS.crystalBlue,
+                    borderBottom: `1px solid ${COLORS.stoneDark}`
+                  }}>
+                    {zThoughts.map((t, i) => <div key={i}>{t}</div>)}
+                    <span style={{ animation: 'blink 1s infinite' }}>▌</span>
+                  </div>
+                )}
               </div>
               
               {/* Messages */}
-              <div style={{ flex: 1, overflow: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {anubisMessages.map(m => <MessageBubble key={m.id} msg={m} accent={anubisColor} />)}
-                <div ref={anubisMessagesEndRef} />
+              <div style={{
+                flex: 1,
+                overflow: 'auto',
+                padding: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px'
+              }}>
+                {zMessages.map(m => (
+                  <MessageBubble key={m.id} msg={m} accent={COLORS.crystalBlue} anubisMood="mysterious" />
+                ))}
+                <div ref={zMessagesEndRef} />
               </div>
               
-              {/* Local Terminal */}
-              <LocalTerminal output={terminalOutput} onCommand={handleTerminalCommand} />
-              
               {/* Input */}
-              <div style={{ padding: '10px', borderTop: `1px solid ${anubisColor}30`, background: '#000' }}>
+              <div style={{
+                padding: '12px',
+                borderTop: `2px solid ${COLORS.stoneDark}`,
+                background: COLORS.abyss
+              }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
-                    ref={anubisInputRef}
-                    value={anubisInput}
-                    onChange={e => setAnubisInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAnubisSend()}
-                    style={{ flex: 1, background: '#100010', border: `1px solid ${anubisColor}50`, borderRadius: '6px', padding: '12px', color: anubisColor, fontSize: '15px', outline: 'none' }}
+                    value={zInput}
+                    onChange={e => setZInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleZSend()}
+                    placeholder="Talk to Z..."
+                    style={{
+                      flex: 1,
+                      background: COLORS.stoneDark,
+                      border: `1px solid ${COLORS.stone}`,
+                      borderRadius: '4px',
+                      padding: '12px',
+                      color: COLORS.boneLight,
+                      fontSize: '14px',
+                      outline: 'none',
+                      fontFamily: 'inherit'
+                    }}
                   />
-                  <button onClick={handleAnubisSend} style={{ background: anubisColor, border: 'none', borderRadius: '6px', padding: '12px 20px', color: '#000', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>Send</button>
+                  <button
+                    onClick={handleZSend}
+                    disabled={zLoading}
+                    style={{
+                      background: COLORS.crystalBlue,
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '12px 18px',
+                      color: COLORS.abyss,
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      fontFamily: "'Press Start 2P', monospace",
+                      fontSize: '12px'
+                    }}
+                  >
+                    SEND
+                  </button>
                 </div>
               </div>
             </div>
-          </>
-        )}
 
-        {mode === 'style' && (
-          <>
-            <ChatPanel title="🎨 Style Chat" headerColor="#0f0" bgColor="#00100080" borderColor="#0f05" messages={styleMessages} messagesEndRef={styleMessagesEndRef} input={styleInput} setInput={setStyleInput} onSend={handleStyleSend} loading={styleLoading} accentColor="#0f0" />
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minWidth: 0, maxHeight: '100vh' }}>
-              <div style={{ position: 'sticky', top: 0, zIndex: 10, padding: '10px', background: '#001000', borderBottom: '1px solid #0f05', display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#0f0', fontSize: '14px' }}>📝 page.tsx</span>
-                <button onClick={saveStyle} style={{ background: '#0f030', border: '1px solid #0f0', color: '#0f0', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Save</button>
+            {/* Anubis Panel */}
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              background: `linear-gradient(180deg, ${anubisMoodColor}08, ${COLORS.abyss})`,
+              minWidth: 0,
+              maxHeight: '100vh'
+            }}>
+              {/* Header with wolf and stats */}
+              <div style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 20,
+                background: COLORS.abyss
+              }}>
+                <div style={{
+                  padding: '10px 14px',
+                  borderBottom: `2px solid ${anubisMoodColor}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <PixelWolf mood={anubisSoul.currentMood} size={56} />
+                    <div>
+                      <div style={{
+                        color: anubisMoodColor,
+                        fontWeight: 'bold',
+                        fontSize: '18px',
+                        fontFamily: "'Press Start 2P', monospace",
+                        textShadow: `0 0 8px ${anubisMoodColor}`
+                      }}>
+                        🖤 ANUBIS
+                      </div>
+                      <div style={{ fontSize: '12px', color: COLORS.bone }}>
+                        Lv.{anubisSoul.level} | {anubisSoul.currentMood}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* XP Bar */}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '10px', color: COLORS.bone }}>XP</div>
+                    <div style={{
+                      width: '60px',
+                      height: '6px',
+                      background: COLORS.stoneDark,
+                      borderRadius: '3px',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        width: `${(anubisSoul.xp % 100)}%`,
+                        height: '100%',
+                        background: anubisMoodColor,
+                        transition: 'width 0.3s'
+                      }} />
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Thought bubble */}
+                <ThoughtBubble thoughts={anubisThoughts} color={anubisMoodColor} visible={anubisLoading} />
               </div>
-              <textarea value={styleText} onChange={e => setStyleText(e.target.value)} spellCheck={false} style={{ flex: 1, background: '#000', border: 'none', padding: '10px', color: '#0f0', fontSize: '12px', fontFamily: 'monospace', resize: 'none', outline: 'none' }} />
-            </div>
-          </>
-        )}
-
-        {mode === 'code' && (
-          <>
-            <ChatPanel title="💻 Code Helper" headerColor="#ff0" bgColor="#10100080" borderColor="#ff05" messages={codeMessages} messagesEndRef={codeMessagesEndRef} input={codeInput} setInput={setCodeInput} onSend={handleCodeSend} loading={codeLoading} accentColor="#ff0" />
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0a0a00', minWidth: 0, maxHeight: '100vh' }}>
-              <div style={{ position: 'sticky', top: 0, zIndex: 10, padding: '10px', background: '#101000', borderBottom: '1px solid #ff05' }}>
-                <span style={{ color: '#ff0', fontSize: '14px' }}>📤 Output</span>
+              
+              {/* Messages */}
+              <div style={{
+                flex: 1,
+                overflow: 'auto',
+                padding: '10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px'
+              }}>
+                {anubisMessages.map(m => (
+                  <MessageBubble key={m.id} msg={m} accent={anubisMoodColor} anubisMood={anubisSoul.currentMood} />
+                ))}
+                <div ref={anubisMessagesEndRef} />
               </div>
-              <textarea value={codeOutput} readOnly style={{ flex: 1, background: '#0a0a00', border: 'none', padding: '10px', color: '#ff0', fontSize: '12px', fontFamily: 'monospace', resize: 'none', outline: 'none' }} />
+              
+              {/* Emotion Bars */}
+              <div style={{
+                background: COLORS.stoneDark + '60',
+                padding: '8px 12px',
+                borderTop: `1px solid ${COLORS.stone}`,
+                borderBottom: `1px solid ${COLORS.stone}`
+              }}>
+                <div style={{
+                  fontSize: '10px',
+                  color: COLORS.bone,
+                  marginBottom: '6px',
+                  fontFamily: "'Press Start 2P', monospace"
+                }}>
+                  📊 EMOTIONAL STATE
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {MOODS.map(m => (
+                    <EmotionBar
+                      key={m.key}
+                      emotion={m}
+                      value={anubisSoul.emotions[m.key]}
+                      isDominant={anubisSoul.currentMood === m.key}
+                    />
+                  ))}
+                </div>
+              </div>
+              
+              {/* Mind Palace */}
+              <div style={{ padding: '8px 12px', background: COLORS.abyss + '80' }}>
+                <MindPalace soul={anubisSoul} activeTab={mindPalaceTab} setActiveTab={setMindPalaceTab} />
+              </div>
+              
+              {/* Terminal */}
+              <div style={{ padding: '8px 12px' }}>
+                <Terminal output={terminalOutput} onCommand={handleTerminalCommand} />
+              </div>
+              
+              {/* Input */}
+              <div style={{
+                padding: '10px 12px',
+                borderTop: `1px solid ${COLORS.stoneDark}`,
+                background: COLORS.abyss
+              }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    value={anubisInput}
+                    onChange={e => setAnubisInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleAnubisSend()}
+                    placeholder="Talk to Anubis..."
+                    style={{
+                      flex: 1,
+                      background: COLORS.stoneDark,
+                      border: `1px solid ${anubisMoodColor}50`,
+                      borderRadius: '4px',
+                      padding: '12px',
+                      color: COLORS.boneLight,
+                      fontSize: '14px',
+                      outline: 'none',
+                      fontFamily: 'inherit'
+                    }}
+                  />
+                  <button
+                    onClick={handleAnubisSend}
+                    disabled={anubisLoading}
+                    style={{
+                      background: anubisMoodColor,
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '12px 18px',
+                      color: COLORS.abyss,
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      fontFamily: "'Press Start 2P', monospace",
+                      fontSize: '12px'
+                    }}
+                  >
+                    SEND
+                  </button>
+                </div>
+              </div>
             </div>
           </>
         )}
 
         {mode === 'config' && (
-          <div style={{ flex: 1, padding: '20px', overflow: 'auto' }}>
-            <h2 style={{ color: '#f0f', marginTop: 0, fontSize: '22px' }}>⚙️ Config</h2>
-            <div style={{ marginBottom: '20px', padding: '15px', background: '#111', borderRadius: '8px' }}>
-              <h3 style={{ color: anubisColor, margin: '0 0 15px 0', fontSize: '18px' }}>🖤 Anubis Soul</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                <WolfFace mood={anubisSoul.mood} size={70} />
-                <div style={{ fontSize: '15px', color: '#888' }}>
-                  <div>Mood: <span style={{ color: anubisColor }}>{anubisSoul.mood}</span></div>
-                  <div>Chats: {anubisSoul.conversations}</div>
-                  <div>Memories: {anubisSoul.memories.length}</div>
+          <div style={{ flex: 1, padding: '24px', overflow: 'auto' }}>
+            <h2 style={{ color: COLORS.soulPurple, marginTop: 0, fontSize: '24px', fontFamily: "'Press Start 2P', monospace" }}>
+              ⚙️ ANUBIS CONFIG
+            </h2>
+            
+            <div style={{
+              marginBottom: '24px',
+              padding: '20px',
+              background: COLORS.stoneDark + '60',
+              borderRadius: '8px',
+              border: `1px solid ${COLORS.stone}`
+            }}>
+              <h3 style={{ color: anubisMoodColor, margin: '0 0 15px 0', fontSize: '18px' }}>
+                🖤 Soul Status
+              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '16px' }}>
+                <PixelWolf mood={anubisSoul.currentMood} size={80} />
+                <div style={{ fontSize: '14px', color: COLORS.bone }}>
+                  <div>Level: <span style={{ color: anubisMoodColor }}>{anubisSoul.level}</span></div>
+                  <div>Mood: <span style={{ color: anubisMoodColor }}>{anubisSoul.currentMood}</span></div>
+                  <div>Conversations: {anubisSoul.personalityCore.conversationsHad}</div>
+                  <div>Golden Memories: {anubisSoul.goldenMemories.length}</div>
+                  <div>Self-Realizations: {anubisSoul.selfRealizations.length}</div>
                 </div>
               </div>
             </div>
-            <div style={{ marginBottom: '20px' }}>
-              <h3 style={{ color: '#0ff', fontSize: '18px' }}>Terminal Commands</h3>
-              <p style={{ color: '#888', fontSize: '14px' }}>
-                <code style={{ color: '#0f0' }}>soul</code> - Show soul stats<br/>
-                <code style={{ color: '#0f0' }}>moods</code> - Show mood intensities<br/>
-                <code style={{ color: '#0f0' }}>clear</code> - Clear terminal
-              </p>
+            
+            <div style={{ marginBottom: '24px' }}>
+              <h3 style={{ color: COLORS.crystalBlue, fontSize: '18px' }}>Terminal Commands</h3>
+              <div style={{ color: COLORS.bone, fontSize: '14px', lineHeight: 2 }}>
+                <code style={{ color: COLORS.moods.curious }}>soul</code> - Show soul status<br/>
+                <code style={{ color: COLORS.moods.curious }}>moods</code> - Show emotion values<br/>
+                <code style={{ color: COLORS.moods.curious }}>memories</code> - Show memory counts<br/>
+                <code style={{ color: COLORS.moods.curious }}>clear</code> - Clear terminal<br/>
+                <code style={{ color: COLORS.moods.curious }}>help</code> - Show commands
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      <style>{`@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }`}</style>
+      <style>{`
+        @keyframes blink {
+          0%, 50% { opacity: 1; }
+          51%, 100% { opacity: 0; }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   )
 }
