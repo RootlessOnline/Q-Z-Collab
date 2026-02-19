@@ -861,8 +861,9 @@ export default function Home() {
     xp: 0
   })
 
-  // Load soul from localStorage
+  // Load soul from localStorage AND file backup
   useEffect(() => {
+    // First try localStorage
     const saved = localStorage.getItem('anubis_soul_v2')
     if (saved) {
       try {
@@ -882,15 +883,56 @@ export default function Home() {
           discoveredAt: new Date(r.discoveredAt)
         }))
         setAnubisSoul(parsed)
+        console.log('[Soul] Loaded from localStorage')
       } catch (e) {
-        console.error('Failed to load soul:', e)
+        console.error('Failed to load soul from localStorage:', e)
       }
     }
+    
+    // Also try to load from file backup (in case localStorage is empty)
+    fetch('/api/soul')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.soul) {
+          const fileSoul = data.soul.soul
+          // Only use file backup if localStorage was empty or file is newer
+          const localSaved = localStorage.getItem('anubis_soul_v2')
+          if (!localSaved || (data.soul.lastUpdated && fileSoul)) {
+            fileSoul.personalityCore.created = new Date(fileSoul.personalityCore.created)
+            fileSoul.shortTermMemory = fileSoul.shortTermMemory.map((t: ShortTermThought) => ({
+              ...t,
+              timestamp: new Date(t.timestamp)
+            }))
+            fileSoul.goldenMemories = fileSoul.goldenMemories.map((m: GoldenMemory) => ({
+              ...m,
+              timestamp: new Date(m.timestamp)
+            }))
+            fileSoul.selfRealizations = fileSoul.selfRealizations.map((r: SelfRealization) => ({
+              ...r,
+              discoveredAt: new Date(r.discoveredAt)
+            }))
+            setAnubisSoul(fileSoul)
+            // Also save to localStorage
+            localStorage.setItem('anubis_soul_v2', JSON.stringify(fileSoul))
+            console.log('[Soul] Restored from file backup')
+          }
+        }
+      })
+      .catch(e => console.log('[Soul] No file backup found'))
   }, [])
 
+  // Save soul to both localStorage AND file backup
   const saveSoul = useCallback((soul: AnubisSoul) => {
+    // Save to localStorage (fast)
     localStorage.setItem('anubis_soul_v2', JSON.stringify(soul))
     setAnubisSoul(soul)
+    
+    // Save to file backup (persistent)
+    fetch('/api/soul', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ soul })
+    }).catch(e => console.error('[Soul] Failed to save backup:', e))
   }, [])
 
   // Initialize
@@ -1056,14 +1098,21 @@ export default function Home() {
     }
   }, [anubisSoul, anubisMessages, updateEmotions, addToSTM, getDominantMood, saveSoul])
 
-  // Message helpers
-  const addZMessage = useCallback((sender: 'Q' | 'Z' | 'system', text: string) => {
-    setZMessages(prev => [...prev, { id: Date.now(), sender, text, time: new Date().toLocaleTimeString() }])
+  // Unique ID counter to avoid duplicate keys
+  const messageIdCounter = useRef(0)
+  const getUniqueId = useCallback(() => {
+    messageIdCounter.current += 1
+    return Date.now() * 1000 + messageIdCounter.current
   }, [])
 
+  // Message helpers
+  const addZMessage = useCallback((sender: 'Q' | 'Z' | 'system', text: string) => {
+    setZMessages(prev => [...prev, { id: getUniqueId(), sender, text, time: new Date().toLocaleTimeString() }])
+  }, [getUniqueId])
+
   const addAnubisMessage = useCallback((sender: 'Q' | 'Anubis' | 'system', text: string) => {
-    setAnubisMessages(prev => [...prev, { id: Date.now(), sender, text, time: new Date().toLocaleTimeString() }])
-  }, [])
+    setAnubisMessages(prev => [...prev, { id: getUniqueId(), sender, text, time: new Date().toLocaleTimeString() }])
+  }, [getUniqueId])
 
   // Send handlers
   const handleZSend = useCallback(async () => {
@@ -1539,6 +1588,7 @@ export default function Home() {
               ⚙️ ANUBIS CONFIG
             </h2>
             
+            {/* Soul Status */}
             <div style={{
               marginBottom: '24px',
               padding: '20px',
@@ -1561,6 +1611,129 @@ export default function Home() {
               </div>
             </div>
             
+            {/* Soul Backup */}
+            <div style={{
+              marginBottom: '24px',
+              padding: '20px',
+              background: COLORS.stoneDark + '60',
+              borderRadius: '8px',
+              border: `1px solid ${COLORS.torchOrange}`
+            }}>
+              <h3 style={{ color: COLORS.torchOrange, margin: '0 0 15px 0', fontSize: '18px' }}>
+                💾 Soul Backup
+              </h3>
+              <p style={{ color: COLORS.bone, fontSize: '13px', marginBottom: '15px' }}>
+                Anubis's memories and soul are automatically saved after each conversation.
+                Export to keep a copy, or import to restore.
+              </p>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => {
+                    const data = JSON.stringify(anubisSoul, null, 2)
+                    const blob = new Blob([data], { type: 'application/json' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `anubis_soul_${new Date().toISOString().split('T')[0]}.json`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                  style={{
+                    background: COLORS.torchOrange,
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '10px 16px',
+                    color: COLORS.abyss,
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontFamily: "'Press Start 2P', monospace"
+                  }}
+                >
+                  📤 EXPORT SOUL
+                </button>
+                <label style={{
+                  background: COLORS.crystalBlue,
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '10px 16px',
+                  color: COLORS.abyss,
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontFamily: "'Press Start 2P', monospace"
+                }}>
+                  📥 IMPORT SOUL
+                  <input
+                    type="file"
+                    accept=".json"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        const reader = new FileReader()
+                        reader.onload = (event) => {
+                          try {
+                            const imported = JSON.parse(event.target?.result as string)
+                            // Convert dates back
+                            imported.personalityCore.created = new Date(imported.personalityCore.created)
+                            imported.shortTermMemory = imported.shortTermMemory.map((t: ShortTermThought) => ({
+                              ...t, timestamp: new Date(t.timestamp)
+                            }))
+                            imported.goldenMemories = imported.goldenMemories.map((m: GoldenMemory) => ({
+                              ...m, timestamp: new Date(m.timestamp)
+                            }))
+                            imported.selfRealizations = imported.selfRealizations.map((r: SelfRealization) => ({
+                              ...r, discoveredAt: new Date(r.discoveredAt)
+                            }))
+                            saveSoul(imported)
+                            alert('Soul imported successfully! 🖤')
+                          } catch {
+                            alert('Failed to import soul file')
+                          }
+                        }
+                        reader.readAsText(file)
+                      }
+                    }}
+                  />
+                </label>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/soul', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ soul: anubisSoul, action: 'create-backup' })
+                      })
+                      const data = await res.json()
+                      if (data.success) {
+                        alert(`Backup created: ${data.backupFile}`)
+                      }
+                    } catch {
+                      alert('Failed to create backup')
+                    }
+                  }}
+                  style={{
+                    background: COLORS.soulPurple,
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '10px 16px',
+                    color: COLORS.boneLight,
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontFamily: "'Press Start 2P', monospace"
+                  }}
+                >
+                  🗄️ CREATE BACKUP
+                </button>
+              </div>
+              <div style={{ marginTop: '12px', fontSize: '11px', color: COLORS.bone }}>
+                💡 Auto-backup saves to: data/anubis_soul.json
+              </div>
+            </div>
+            
+            {/* Terminal Commands */}
             <div style={{ marginBottom: '24px' }}>
               <h3 style={{ color: COLORS.crystalBlue, fontSize: '18px' }}>Terminal Commands</h3>
               <div style={{ color: COLORS.bone, fontSize: '14px', lineHeight: 2 }}>
