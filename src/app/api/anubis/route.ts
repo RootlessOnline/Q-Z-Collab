@@ -57,6 +57,36 @@ export async function POST(request: NextRequest) {
     const data = await response.json()
     const anubisResponse = data.message?.content || "I'm here, Q..."
 
+    // Log to Anubis chat for Real Z to see
+    try {
+      await fetch('http://localhost:3000/api/autopush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'log-message',
+          data: {
+            chat: 'anubis',
+            speaker: 'Q',
+            message: message
+          }
+        })
+      })
+      await fetch('http://localhost:3000/api/autopush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'log-message',
+          data: {
+            chat: 'anubis',
+            speaker: 'Anubis',
+            message: anubisResponse
+          }
+        })
+      })
+    } catch (e) {
+      console.error('Failed to log:', e)
+    }
+
     console.log('[Anubis] Response length:', anubisResponse.length)
 
     return NextResponse.json({ response: anubisResponse })

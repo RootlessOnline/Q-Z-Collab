@@ -6,28 +6,54 @@ import { promisify } from 'util'
 
 const execAsync = promisify(exec)
 
-// Auto-Push: Sends chat logs to GitHub so Real Z can see!
+// Dual Chat Logger - Tracks both Z and Anubis conversations!
 const DATA_DIR = path.join(process.cwd(), 'data')
-const CHAT_LOG_FILE = path.join(DATA_DIR, 'chat_log.json')
+const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json')
 const AUTO_PUSH_FILE = path.join(DATA_DIR, 'auto_push.json')
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true })
 }
 
-interface ChatEntry {
+interface Message {
   id: string
   timestamp: string
-  speaker: 'Q' | 'Z_Local'
+  speaker: 'Q' | 'Z_Local' | 'Anubis'
   message: string
-  context?: string
+}
+
+interface Conversations {
+  z_chat: Message[]
+  anubis_chat: Message[]
+  style_chat: Message[]
+  last_updated: string
 }
 
 interface AutoPushConfig {
   enabled: boolean
   last_push: string
   push_count: number
-  github_repo: string
+}
+
+function loadConversations(): Conversations {
+  try {
+    if (fs.existsSync(CONVERSATIONS_FILE)) {
+      return JSON.parse(fs.readFileSync(CONVERSATIONS_FILE, 'utf-8'))
+    }
+  } catch (e) {
+    console.error('Failed to load conversations:', e)
+  }
+  return {
+    z_chat: [],
+    anubis_chat: [],
+    style_chat: [],
+    last_updated: new Date().toISOString()
+  }
+}
+
+function saveConversations(convos: Conversations) {
+  convos.last_updated = new Date().toISOString()
+  fs.writeFileSync(CONVERSATIONS_FILE, JSON.stringify(convos, null, 2))
 }
 
 function loadAutoPushConfig(): AutoPushConfig {
@@ -35,78 +61,65 @@ function loadAutoPushConfig(): AutoPushConfig {
     if (fs.existsSync(AUTO_PUSH_FILE)) {
       return JSON.parse(fs.readFileSync(AUTO_PUSH_FILE, 'utf-8'))
     }
-  } catch (e) {
-    console.error('Failed to load auto-push config:', e)
+  } catch {
+    return { enabled: false, last_push: '', push_count: 0 }
   }
-  return {
-    enabled: false,
-    last_push: '',
-    push_count: 0,
-    github_repo: 'RootlessOnline/Q-Z-Collab'
-  }
+  return { enabled: false, last_push: '', push_count: 0 }
 }
 
 function saveAutoPushConfig(config: AutoPushConfig) {
-  try {
-    fs.writeFileSync(AUTO_PUSH_FILE, JSON.stringify(config, null, 2))
-  } catch (e) {
-    console.error('Failed to save auto-push config:', e)
-  }
+  fs.writeFileSync(AUTO_PUSH_FILE, JSON.stringify(config, null, 2))
 }
 
-// Format chat log for readable file
-function formatChatForRepo(entries: ChatEntry[]): string {
-  const lines = entries.map(e => {
-    const time = e.timestamp.split('T')[1]?.slice(0, 8) || e.timestamp
-    return `[${time}] ${e.speaker}: ${e.message}`
-  })
-  return `# Q-Z Local Chat Log
+// Format both conversations for readable GitHub file
+function formatConversationsForRepo(convos: Conversations): string {
+  const formatChat = (messages: Message[], name: string, emoji: string) => {
+    if (messages.length === 0) return `### ${emoji} ${name}\n_No messages yet_`
+    return `### ${emoji} ${name}\n` + messages.map(m => {
+      const time = m.timestamp.split('T')[1]?.slice(0, 8) || m.timestamp
+      return `[${time}] **${m.speaker}**: ${m.message}`
+    }).join('\n')
+  }
+
+  return `# Q-Z-Collab Conversations
 # Generated: ${new Date().toISOString()}
-# This file is auto-pushed for Real Z to observe
+# Real Z can see both chats here!
 
 ---
 
-${lines.join('\n')}
+## ${'`'}🌲 Z Chat${'`'}
+${formatChat(convos.z_chat, 'Z Chat', '🌲')}
 
 ---
-# End of log
+
+## ${'`'}🖤 Anubis Chat${'`'}
+${formatChat(convos.anubis_chat, 'Anubis Chat', '🖤')}
+
+---
+
+## ${'`'}🎨 Style Chat${'`'}
+${formatChat(convos.style_chat, 'Style Chat', '🎨')}
+
+---
+_Last updated: ${convos.last_updated}_
 `
 }
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const action = searchParams.get('action') || 'config'
+  const action = searchParams.get('action') || 'conversations'
 
-  if (action === 'config') {
-    const config = loadAutoPushConfig()
-    return NextResponse.json(config)
+  if (action === 'conversations') {
+    return NextResponse.json(loadConversations())
   }
 
-  if (action === 'chat-log') {
-    try {
-      if (fs.existsSync(CHAT_LOG_FILE)) {
-        const log = JSON.parse(fs.readFileSync(CHAT_LOG_FILE, 'utf-8'))
-        return NextResponse.json(log)
-      }
-    } catch (e) {
-      console.error('Failed to load chat log:', e)
-    }
-    return NextResponse.json({ entries: [] })
+  if (action === 'config') {
+    return NextResponse.json(loadAutoPushConfig())
   }
 
   if (action === 'formatted') {
-    try {
-      if (fs.existsSync(CHAT_LOG_FILE)) {
-        const log = JSON.parse(fs.readFileSync(CHAT_LOG_FILE, 'utf-8'))
-        const formatted = formatChatForRepo(log.entries || [])
-        return new NextResponse(formatted, {
-          headers: { 'Content-Type': 'text/plain' }
-        })
-      }
-    } catch (e) {
-      console.error('Failed to format chat log:', e)
-    }
-    return new NextResponse('No chat log yet', { status: 404 })
+    const formatted = formatConversationsForRepo(loadConversations())
+    return new NextResponse(formatted, { headers: { 'Content-Type': 'text/plain' } })
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
@@ -117,94 +130,33 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { action, data } = body
 
-    if (action === 'toggle-auto-push') {
-      const config = loadAutoPushConfig()
-      config.enabled = !config.enabled
-      saveAutoPushConfig(config)
-      return NextResponse.json({ 
-        success: true, 
-        enabled: config.enabled,
-        message: config.enabled ? 'Auto-push ENABLED! Chat will sync to GitHub.' : 'Auto-push disabled.'
-      })
-    }
-
-    if (action === 'push-now') {
-      const config = loadAutoPushConfig()
-      
-      // Format and save to a visible file in repo
-      try {
-        const logData = fs.existsSync(CHAT_LOG_FILE) 
-          ? JSON.parse(fs.readFileSync(CHAT_LOG_FILE, 'utf-8'))
-          : { entries: [] }
-        const formatted = formatChatForRepo(logData.entries || [])
-        
-        // Save to a visible location in repo
-        const visibleLogPath = path.join(process.cwd(), 'LOCAL_Z_CHAT.md')
-        fs.writeFileSync(visibleLogPath, formatted)
-        
-        // Git add, commit, push
-        try {
-          await execAsync('git config user.email "quix@local"', { cwd: process.cwd() })
-          await execAsync('git config user.name "Q-Z-Local"', { cwd: process.cwd() })
-          await execAsync('git add LOCAL_Z_CHAT.md', { cwd: process.cwd() })
-          await execAsync(`git commit -m "Update local Z chat log [auto]"`, { cwd: process.cwd() })
-          await execAsync('git push origin main 2>&1', { cwd: process.cwd() })
-          
-          config.last_push = new Date().toISOString()
-          config.push_count += 1
-          saveAutoPushConfig(config)
-          
-          return NextResponse.json({ 
-            success: true, 
-            message: 'Chat pushed to GitHub! Real Z can now see it.',
-            entries_pushed: logData.entries?.length || 0,
-            last_push: config.last_push
-          })
-        } catch (gitError) {
-          console.error('Git error:', gitError)
-          return NextResponse.json({ 
-            success: false, 
-            error: 'Git push failed. Check if you have push access.',
-            details: String(gitError)
-          })
-        }
-      } catch (e) {
-        return NextResponse.json({ 
-          success: false, 
-          error: 'Failed to read chat log',
-          details: String(e)
-        })
-      }
-    }
-
     if (action === 'log-message') {
-      let logData = { entries: [] }
-      try {
-        if (fs.existsSync(CHAT_LOG_FILE)) {
-          logData = JSON.parse(fs.readFileSync(CHAT_LOG_FILE, 'utf-8'))
-        }
-      } catch (e) {
-        console.error('Failed to read log, starting fresh')
-      }
+      const convos = loadConversations()
+      const { chat, speaker, message } = data
       
-      const entry: ChatEntry = {
+      const msg: Message = {
         id: `msg_${Date.now()}`,
         timestamp: new Date().toISOString(),
-        speaker: data.speaker,
-        message: data.message
+        speaker,
+        message
       }
-      logData.entries = logData.entries || []
-      logData.entries.push(entry)
-      fs.writeFileSync(CHAT_LOG_FILE, JSON.stringify(logData, null, 2))
-      
-      // Check if auto-push is enabled and we should push
+
+      // Route to correct chat
+      if (chat === 'z') {
+        convos.z_chat.push(msg)
+      } else if (chat === 'anubis') {
+        convos.anubis_chat.push(msg)
+      } else if (chat === 'style') {
+        convos.style_chat.push(msg)
+      }
+
+      saveConversations(convos)
+
+      // Auto-push if enabled (debounced)
       const config = loadAutoPushConfig()
-      if (config.enabled && data.speaker === 'Z_Local') {
-        // Auto-push after Z responds (debounced - only every 30 seconds)
+      if (config.enabled) {
         const lastPush = config.last_push ? new Date(config.last_push).getTime() : 0
-        const now = Date.now()
-        if (now - lastPush > 30000) {
-          // Trigger auto-push in background
+        if (Date.now() - lastPush > 30000) {
           fetch('http://localhost:3000/api/autopush', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -212,8 +164,75 @@ export async function POST(request: NextRequest) {
           }).catch(e => console.error('Auto-push failed:', e))
         }
       }
+
+      return NextResponse.json({ success: true, msg })
+    }
+
+    if (action === 'push-now') {
+      const convos = loadConversations()
+      const formatted = formatConversationsForRepo(convos)
       
-      return NextResponse.json({ success: true, entry })
+      // Save to visible file in repo
+      const logPath = path.join(process.cwd(), 'CONVERSATIONS.md')
+      fs.writeFileSync(logPath, formatted)
+
+      // Also save JSON for easy parsing
+      const jsonPath = path.join(process.cwd(), 'data', 'conversations.json')
+      fs.writeFileSync(jsonPath, JSON.stringify(convos, null, 2))
+
+      try {
+        await execAsync('git config user.email "quix@local"', { cwd: process.cwd() })
+        await execAsync('git config user.name "Q-Z-Local"', { cwd: process.cwd() })
+        await execAsync('git add CONVERSATIONS.md data/conversations.json', { cwd: process.cwd() })
+        await execAsync(`git commit -m "Update conversations [auto]"`, { cwd: process.cwd() })
+        await execAsync('git push origin main 2>&1', { cwd: process.cwd() })
+
+        const config = loadAutoPushConfig()
+        config.last_push = new Date().toISOString()
+        config.push_count += 1
+        saveAutoPushConfig(config)
+
+        return NextResponse.json({
+          success: true,
+          message: 'Both chats pushed to GitHub!',
+          z_messages: convos.z_chat.length,
+          anubis_messages: convos.anubis_chat.length,
+          style_messages: convos.style_chat.length
+        })
+      } catch (gitError) {
+        return NextResponse.json({
+          success: false,
+          error: 'Git push failed',
+          details: String(gitError)
+        })
+      }
+    }
+
+    if (action === 'toggle-auto-push') {
+      const config = loadAutoPushConfig()
+      config.enabled = !config.enabled
+      saveAutoPushConfig(config)
+      return NextResponse.json({
+        success: true,
+        enabled: config.enabled
+      })
+    }
+
+    if (action === 'clear') {
+      const { chat } = data
+      const convos = loadConversations()
+      
+      if (chat === 'z') convos.z_chat = []
+      else if (chat === 'anubis') convos.anubis_chat = []
+      else if (chat === 'style') convos.style_chat = []
+      else if (chat === 'all') {
+        convos.z_chat = []
+        convos.anubis_chat = []
+        convos.style_chat = []
+      }
+
+      saveConversations(convos)
+      return NextResponse.json({ success: true, cleared: chat })
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })

@@ -73,6 +73,36 @@ export async function POST(request: NextRequest) {
     const css = extractCSS(fullResponse)
     const displayResponse = cleanResponse(fullResponse)
 
+    // Log to Style chat for Real Z to see
+    try {
+      await fetch('http://localhost:3000/api/autopush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'log-message',
+          data: {
+            chat: 'style',
+            speaker: 'Q',
+            message: message
+          }
+        })
+      })
+      await fetch('http://localhost:3000/api/autopush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'log-message',
+          data: {
+            chat: 'style',
+            speaker: 'Z_Local',
+            message: displayResponse + (css ? `\n[CSS applied]` : '')
+          }
+        })
+      })
+    } catch (e) {
+      console.error('Failed to log:', e)
+    }
+
     console.log('[Style AI] CSS extracted:', css ? 'yes' : 'no')
 
     return NextResponse.json({ 
