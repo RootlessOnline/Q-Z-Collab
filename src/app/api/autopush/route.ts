@@ -144,9 +144,11 @@ export async function POST(request: NextRequest) {
         
         // Git add, commit, push
         try {
+          await execAsync('git config user.email "quix@local"', { cwd: process.cwd() })
+          await execAsync('git config user.name "Q-Z-Local"', { cwd: process.cwd() })
           await execAsync('git add LOCAL_Z_CHAT.md', { cwd: process.cwd() })
           await execAsync(`git commit -m "Update local Z chat log [auto]"`, { cwd: process.cwd() })
-          await execAsync('git push origin main', { cwd: process.cwd() })
+          await execAsync('git push origin main 2>&1', { cwd: process.cwd() })
           
           config.last_push = new Date().toISOString()
           config.push_count += 1
